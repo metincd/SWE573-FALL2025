@@ -5,6 +5,7 @@ from django.contrib.auth.models import PermissionsMixin
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.text import slugify
 from django.utils.translation import gettext_lazy as _
 
 
@@ -101,3 +102,269 @@ class Profile(models.Model):
 
     def __str__(self) -> str:
         return f"Profile({self.user.email})"
+
+
+# Services Models
+
+class Tag(models.Model):
+    name = models.CharField(_("tag name"), max_length=50, unique=True)
+    slug = models.SlugField(_("slug"), max_length=50, unique=True)
+    description = models.TextField(_("description"), blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("tag")
+        verbose_name_plural = _("tags")
+        ordering = ["name"]
+        indexes = [
+            models.Index(fields=["slug"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
+
+
+class Service(models.Model):
+    SERVICE_TYPES = [
+        ("offer", _("Offer")),
+        ("need", _("Need")),
+    ]
+
+    SERVICE_STATUS = [
+        ("active", _("Active")),
+        ("inactive", _("Inactive")),
+        ("completed", _("Completed")),
+    ]
+
+    owner = models.ForeignKey(
+        User, 
+        on_delete=models.CASCADE, 
+        related_name="services",
+        verbose_name=_("owner")
+    )
+    service_type = models.CharField(
+        _("service type"), 
+        max_length=10, 
+        choices=SERVICE_TYPES
+    )
+    title = models.CharField(_("title"), max_length=200)
+    description = models.TextField(_("description"))
+    tags = models.ManyToManyField(
+        Tag, 
+        related_name="services", 
+        blank=True,
+        verbose_name=_("tags")
+    )
+    latitude = models.DecimalField(
+        _("latitude"),
+        max_digits=9, 
+        decimal_places=6, 
+        null=True, 
+        blank=True
+    )
+    longitude = models.DecimalField(
+        _("longitude"),
+        max_digits=9, 
+        decimal_places=6, 
+        null=True, 
+        blank=True
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=SERVICE_STATUS,
+        default="active"
+    )
+    estimated_hours = models.PositiveIntegerField(
+        _("estimated hours"), 
+        null=True, 
+        blank=True,
+        help_text=_("Estimated time to complete this service")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("service")
+        verbose_name_plural = _("services")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["owner"]),
+            models.Index(fields=["service_type"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_service_type_display()}: {self.title}"
+
+
+class ServiceRequest(models.Model):
+    REQUEST_STATUS = [
+        ("pending", _("Pending")),
+        ("accepted", _("Accepted")),
+        ("rejected", _("Rejected")),
+        ("completed", _("Completed")),
+        ("cancelled", _("Cancelled")),
+    ]
+
+    requester = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="service_requests",
+        verbose_name=_("requester")
+    )
+    service = models.ForeignKey(
+        Service,
+        on_delete=models.CASCADE,
+        related_name="requests",
+        verbose_name=_("service")
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=REQUEST_STATUS,
+        default="pending"
+    )
+    message = models.TextField(
+        _("message"), 
+        blank=True,
+        help_text=_("Optional message from requester")
+    )
+    response_note = models.TextField(
+        _("response note"), 
+        blank=True,
+        help_text=_("Owner's response to the request")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("service request")
+        verbose_name_plural = _("service requests")
+        ordering = ["-created_at"]
+        unique_together = ["requester", "service"]
+        indexes = [
+            models.Index(fields=["requester"]),
+            models.Index(fields=["service"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.requester.email} -> {self.service.title}"
+
+
+class ServiceSession(models.Model):
+    SESSION_STATUS = [
+        ("scheduled", _("Scheduled")),
+        ("in_progress", _("In Progress")),
+        ("completed", _("Completed")),
+        ("cancelled", _("Cancelled")),
+    ]
+
+    service_request = models.ForeignKey(
+        ServiceRequest,
+        on_delete=models.CASCADE,
+        related_name="sessions",
+        verbose_name=_("service request")
+    )
+    scheduled_start = models.DateTimeField(_("scheduled start time"))
+    scheduled_end = models.DateTimeField(_("scheduled end time"))
+    actual_start = models.DateTimeField(_("actual start time"), null=True, blank=True)
+    actual_end = models.DateTimeField(_("actual end time"), null=True, blank=True)
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=SESSION_STATUS,
+        default="scheduled"
+    )
+    notes = models.TextField(_("session notes"), blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("service session")
+        verbose_name_plural = _("service sessions")
+        ordering = ["scheduled_start"]
+        indexes = [
+            models.Index(fields=["service_request"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["scheduled_start"]),
+            models.Index(fields=["actual_start"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Session: {self.service_request} ({self.scheduled_start})"
+
+    @property
+    def actual_hours(self) -> float | None:
+        """Calculate actual hours worked if both start and end times are recorded"""
+        if self.actual_start and self.actual_end:
+            delta = self.actual_end - self.actual_start
+            return delta.total_seconds() / 3600
+        return None
+
+    @property
+    def scheduled_hours(self) -> float:
+        """Calculate scheduled hours"""
+        delta = self.scheduled_end - self.scheduled_start
+        return delta.total_seconds() / 3600
+
+
+class Completion(models.Model):
+    COMPLETION_STATUS = [
+        ("pending", _("Pending")),
+        ("confirmed", _("Confirmed")),
+        ("disputed", _("Disputed")),
+    ]
+
+    session = models.OneToOneField(
+        ServiceSession,
+        on_delete=models.CASCADE,
+        related_name="completion",
+        verbose_name=_("session")
+    )
+    marked_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="marked_completions",
+        verbose_name=_("marked by")
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=COMPLETION_STATUS,
+        default="pending"
+    )
+    completion_notes = models.TextField(_("completion notes"), blank=True)
+    time_transferred = models.BooleanField(
+        _("time transferred"), 
+        default=False,
+        help_text=_("Whether time has been transferred in the time banking system")
+    )
+    confirmed_at = models.DateTimeField(_("confirmed at"), null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("completion")
+        verbose_name_plural = _("completions")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["session"]),
+            models.Index(fields=["marked_by"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["time_transferred"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Completion: {self.session} - {self.get_status_display()}"
