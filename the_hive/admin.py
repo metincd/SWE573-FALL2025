@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from .models import (
     User, Profile, Tag, Service, ServiceRequest, 
-    ServiceSession, Completion
+    ServiceSession, Completion, TimeAccount, TimeTransaction
 )
 
 
@@ -198,6 +198,116 @@ class CompletionAdmin(admin.ModelAdmin):
         }),
         ("Completion Details", {
             "fields": ("completion_notes", "time_transferred", "confirmed_at")
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+
+class TimeTransactionInline(admin.TabularInline):
+    model = TimeTransaction
+    extra = 0
+    readonly_fields = ("signed_amount", "created_at", "processed_at")
+    fields = (
+        "transaction_type", 
+        "amount", 
+        "signed_amount",
+        "status", 
+        "description", 
+        "created_at"
+    )
+
+
+@admin.register(TimeAccount)
+class TimeAccountAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "balance",
+        "total_earned",
+        "total_spent",
+        "participation_ratio",
+        "is_positive_balance",
+        "updated_at"
+    )
+    list_filter = ("balance", "created_at", "updated_at")
+    search_fields = ("user__email", "user__first_name", "user__last_name")
+    readonly_fields = (
+        "participation_ratio", 
+        "is_positive_balance",
+        "created_at", 
+        "updated_at"
+    )
+    inlines = [TimeTransactionInline]
+    
+    fieldsets = (
+        (None, {
+            "fields": ("user",)
+        }),
+        ("Balance Information", {
+            "fields": (
+                "balance", 
+                "total_earned", 
+                "total_spent",
+                "participation_ratio",
+                "is_positive_balance"
+            )
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+
+@admin.register(TimeTransaction)
+class TimeTransactionAdmin(admin.ModelAdmin):
+    list_display = (
+        "account",
+        "transaction_type",
+        "signed_amount",
+        "status",
+        "description",
+        "created_at",
+        "processed_at"
+    )
+    list_filter = (
+        "transaction_type",
+        "status", 
+        "created_at",
+        "processed_at"
+    )
+    search_fields = (
+        "account__user__email",
+        "description",
+        "related_service__title"
+    )
+    readonly_fields = ("signed_amount", "created_at", "updated_at")
+    
+    fieldsets = (
+        (None, {
+            "fields": (
+                "account", 
+                "transaction_type", 
+                "amount",
+                "signed_amount",
+                "status"
+            )
+        }),
+        ("Details", {
+            "fields": ("description",)
+        }),
+        ("Related Objects", {
+            "fields": (
+                "related_service",
+                "related_session", 
+                "related_completion"
+            ),
+            "classes": ("collapse",)
+        }),
+        ("Processing", {
+            "fields": ("processed_by", "processed_at")
         }),
         ("Timestamps", {
             "fields": ("created_at", "updated_at"),

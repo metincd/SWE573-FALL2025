@@ -104,8 +104,6 @@ class Profile(models.Model):
         return f"Profile({self.user.email})"
 
 
-# Services Models
-
 class Tag(models.Model):
     name = models.CharField(_("tag name"), max_length=50, unique=True)
     slug = models.SlugField(_("slug"), max_length=50, unique=True)
@@ -143,49 +141,30 @@ class Service(models.Model):
     ]
 
     owner = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name="services",
-        verbose_name=_("owner")
+        User, on_delete=models.CASCADE, related_name="services", verbose_name=_("owner")
     )
     service_type = models.CharField(
-        _("service type"), 
-        max_length=10, 
-        choices=SERVICE_TYPES
+        _("service type"), max_length=10, choices=SERVICE_TYPES
     )
     title = models.CharField(_("title"), max_length=200)
     description = models.TextField(_("description"))
     tags = models.ManyToManyField(
-        Tag, 
-        related_name="services", 
-        blank=True,
-        verbose_name=_("tags")
+        Tag, related_name="services", blank=True, verbose_name=_("tags")
     )
     latitude = models.DecimalField(
-        _("latitude"),
-        max_digits=9, 
-        decimal_places=6, 
-        null=True, 
-        blank=True
+        _("latitude"), max_digits=9, decimal_places=6, null=True, blank=True
     )
     longitude = models.DecimalField(
-        _("longitude"),
-        max_digits=9, 
-        decimal_places=6, 
-        null=True, 
-        blank=True
+        _("longitude"), max_digits=9, decimal_places=6, null=True, blank=True
     )
     status = models.CharField(
-        _("status"),
-        max_length=20,
-        choices=SERVICE_STATUS,
-        default="active"
+        _("status"), max_length=20, choices=SERVICE_STATUS, default="active"
     )
     estimated_hours = models.PositiveIntegerField(
-        _("estimated hours"), 
-        null=True, 
+        _("estimated hours"),
+        null=True,
         blank=True,
-        help_text=_("Estimated time to complete this service")
+        help_text=_("Estimated time to complete this service"),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -218,29 +197,22 @@ class ServiceRequest(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name="service_requests",
-        verbose_name=_("requester")
+        verbose_name=_("requester"),
     )
     service = models.ForeignKey(
         Service,
         on_delete=models.CASCADE,
         related_name="requests",
-        verbose_name=_("service")
+        verbose_name=_("service"),
     )
     status = models.CharField(
-        _("status"),
-        max_length=20,
-        choices=REQUEST_STATUS,
-        default="pending"
+        _("status"), max_length=20, choices=REQUEST_STATUS, default="pending"
     )
     message = models.TextField(
-        _("message"), 
-        blank=True,
-        help_text=_("Optional message from requester")
+        _("message"), blank=True, help_text=_("Optional message from requester")
     )
     response_note = models.TextField(
-        _("response note"), 
-        blank=True,
-        help_text=_("Owner's response to the request")
+        _("response note"), blank=True, help_text=_("Owner's response to the request")
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -274,17 +246,14 @@ class ServiceSession(models.Model):
         ServiceRequest,
         on_delete=models.CASCADE,
         related_name="sessions",
-        verbose_name=_("service request")
+        verbose_name=_("service request"),
     )
     scheduled_start = models.DateTimeField(_("scheduled start time"))
     scheduled_end = models.DateTimeField(_("scheduled end time"))
     actual_start = models.DateTimeField(_("actual start time"), null=True, blank=True)
     actual_end = models.DateTimeField(_("actual end time"), null=True, blank=True)
     status = models.CharField(
-        _("status"),
-        max_length=20,
-        choices=SESSION_STATUS,
-        default="scheduled"
+        _("status"), max_length=20, choices=SESSION_STATUS, default="scheduled"
     )
     notes = models.TextField(_("session notes"), blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -330,25 +299,22 @@ class Completion(models.Model):
         ServiceSession,
         on_delete=models.CASCADE,
         related_name="completion",
-        verbose_name=_("session")
+        verbose_name=_("session"),
     )
     marked_by = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         related_name="marked_completions",
-        verbose_name=_("marked by")
+        verbose_name=_("marked by"),
     )
     status = models.CharField(
-        _("status"),
-        max_length=20,
-        choices=COMPLETION_STATUS,
-        default="pending"
+        _("status"), max_length=20, choices=COMPLETION_STATUS, default="pending"
     )
     completion_notes = models.TextField(_("completion notes"), blank=True)
     time_transferred = models.BooleanField(
-        _("time transferred"), 
+        _("time transferred"),
         default=False,
-        help_text=_("Whether time has been transferred in the time banking system")
+        help_text=_("Whether time has been transferred in the time banking system"),
     )
     confirmed_at = models.DateTimeField(_("confirmed at"), null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -368,3 +334,166 @@ class Completion(models.Model):
 
     def __str__(self) -> str:
         return f"Completion: {self.session} - {self.get_status_display()}"
+
+
+class TimeAccount(models.Model):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="time_account",
+        verbose_name=_("user"),
+    )
+    balance = models.DecimalField(
+        _("balance (hours)"),
+        max_digits=8,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Current time balance in hours"),
+    )
+    total_earned = models.DecimalField(
+        _("total earned (hours)"),
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Total hours earned by providing services"),
+    )
+    total_spent = models.DecimalField(
+        _("total spent (hours)"),
+        max_digits=10,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Total hours spent on receiving services"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("time account")
+        verbose_name_plural = _("time accounts")
+        indexes = [
+            models.Index(fields=["user"]),
+            models.Index(fields=["balance"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"TimeAccount({self.user.email}): {self.balance}h"
+
+    @property
+    def is_positive_balance(self) -> bool:
+        """Check if user has positive balance"""
+        return self.balance > 0
+
+    @property
+    def participation_ratio(self) -> float:
+        """Calculate the ratio of giving vs receiving (earned/spent)"""
+        if self.total_spent == 0:
+            return float("inf") if self.total_earned > 0 else 0
+        return float(self.total_earned / self.total_spent)
+
+
+class TimeTransaction(models.Model):
+    TRANSACTION_TYPES = [
+        ("credit", _("Credit")),
+        ("debit", _("Debit")),
+        ("adjustment", _("Adjustment")),
+        ("bonus", _("Bonus")),
+    ]
+
+    TRANSACTION_STATUS = [
+        ("pending", _("Pending")),
+        ("completed", _("Completed")),
+        ("cancelled", _("Cancelled")),
+        ("failed", _("Failed")),
+    ]
+
+    account = models.ForeignKey(
+        TimeAccount,
+        on_delete=models.CASCADE,
+        related_name="transactions",
+        verbose_name=_("account"),
+    )
+    transaction_type = models.CharField(
+        _("transaction type"), max_length=20, choices=TRANSACTION_TYPES
+    )
+    amount = models.DecimalField(
+        _("amount (hours)"),
+        max_digits=6,
+        decimal_places=2,
+        help_text=_("Amount in hours (always positive)"),
+    )
+    status = models.CharField(
+        _("status"), max_length=20, choices=TRANSACTION_STATUS, default="pending"
+    )
+    description = models.CharField(
+        _("description"), max_length=500, help_text=_("Description of the transaction")
+    )
+
+    related_service = models.ForeignKey(
+        Service,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="time_transactions",
+        verbose_name=_("related service"),
+    )
+    related_session = models.ForeignKey(
+        ServiceSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="time_transactions",
+        verbose_name=_("related session"),
+    )
+    related_completion = models.ForeignKey(
+        Completion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="time_transactions",
+        verbose_name=_("related completion"),
+    )
+
+    # Tracking
+    processed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="processed_transactions",
+        verbose_name=_("processed by"),
+        help_text=_("User or admin who processed this transaction"),
+    )
+    processed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("time transaction")
+        verbose_name_plural = _("time transactions")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["account"]),
+            models.Index(fields=["transaction_type"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["related_service"]),
+            models.Index(fields=["related_session"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        sign = "+" if self.transaction_type in ["credit", "bonus"] else "-"
+        return f"{sign}{self.amount}h: {self.description}"
+
+    def save(self, *args, **kwargs):
+        if self.status == "completed" and not self.processed_at:
+            self.processed_at = timezone.now()
+        super().save(*args, **kwargs)
+
+    @property
+    def signed_amount(self) -> float:
+        """Return amount with appropriate sign based on transaction type"""
+        if self.transaction_type in ["credit", "bonus"]:
+            return float(self.amount)
+        else:
+            return -float(self.amount)
