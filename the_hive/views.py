@@ -3,12 +3,14 @@ from rest_framework import viewsets, permissions, filters, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
 
-from .models import Profile, Tag, Service, ServiceRequest
+from .models import Profile, Tag, Service, ServiceRequest, ServiceSession, Completion
 from .serializers import (
     ProfileSerializer,
     TagSerializer,
     ServiceSerializer,
     ServiceRequestSerializer,
+    ServiceSessionSerializer,
+    CompletionSerializer,
 )
 
 
@@ -93,3 +95,48 @@ class MeView(generics.RetrieveAPIView):
     def get_object(self):
         profile, _ = Profile.objects.get_or_create(user=self.request.user)
         return profile
+
+
+class ServiceSessionViewSet(viewsets.ModelViewSet):
+    serializer_class = ServiceSessionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            ServiceSession.objects.select_related(
+                "service_request",
+                "service_request__service",
+                "service_request__requester",
+                "service_request__service__owner",
+            )
+            .filter(
+                Q(service_request__requester=user) | Q(service_request__service__owner=user)
+            )
+            .order_by("-scheduled_start")
+        )
+
+
+class CompletionViewSet(viewsets.ModelViewSet):
+    serializer_class = CompletionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return (
+            Completion.objects.select_related(
+                "session",
+                "marked_by",
+                "session__service_request",
+                "session__service_request__service",
+            )
+            .filter(
+                Q(marked_by=user)
+                | Q(session__service_request__service__owner=user)
+                | Q(session__service_request__requester=user)
+            )
+            .order_by("-created_at")
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(marked_by=self.request.user)

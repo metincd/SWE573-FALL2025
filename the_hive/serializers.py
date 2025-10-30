@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Profile, Tag, Service, ServiceRequest
+from .models import User, Profile, Tag, Service, ServiceRequest, ServiceSession, Completion
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -80,5 +80,42 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             "responded_at",
         ]
         read_only_fields = ["id", "requester", "created_at", "updated_at", "responded_at"]
+
+
+class ServiceSessionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ServiceSession
+        fields = [
+            "id",
+            "service_request",
+            "scheduled_start",
+            "scheduled_end",
+            "actual_start",
+            "actual_end",
+            "status",
+            "notes",
+            "actual_hours",
+            "scheduled_hours",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "actual_hours", "scheduled_hours", "created_at", "updated_at"]
+
+
+class CompletionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Completion
+        fields = [
+            "id",
+            "session",
+            "marked_by",
+            "status",
+            "completion_notes",
+            "time_transferred",
+            "confirmed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "marked_by", "created_at", "updated_at"]
 
 
