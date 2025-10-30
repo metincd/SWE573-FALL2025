@@ -3,7 +3,8 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from .models import (
     User, Profile, Tag, Service, ServiceRequest, 
     ServiceSession, Completion, TimeAccount, TimeTransaction,
-    Conversation, Message, Thread, Post, ThankYouNote
+    Conversation, Message, Thread, Post, ThankYouNote,
+    Report, ModerationAction
 )
 
 
@@ -628,3 +629,202 @@ class ThankYouNoteAdmin(admin.ModelAdmin):
         return obj.is_unread
     is_unread.boolean = True
     is_unread.short_description = "Unread"
+
+
+class ModerationActionInline(admin.TabularInline):
+    model = ModerationAction
+    extra = 0
+    readonly_fields = ("is_active", "is_expired", "created_at")
+    fields = (
+        "moderator",
+        "action",
+        "severity",
+        "affected_user",
+        "is_active",
+        "is_expired",
+        "created_at"
+    )
+
+
+@admin.register(Report)
+class ReportAdmin(admin.ModelAdmin):
+    list_display = (
+        "reporter",
+        "reason",
+        "status",
+        "reported_content_preview",
+        "is_pending",
+        "created_at",
+        "resolved_at"
+    )
+    list_filter = (
+        "reason",
+        "status",
+        "content_type",
+        "created_at",
+        "resolved_at"
+    )
+    search_fields = (
+        "reporter__email",
+        "description",
+        "reason",
+        "evidence_url"
+    )
+    readonly_fields = (
+        "reported_object",
+        "reported_content_preview",
+        "is_pending",
+        "created_at",
+        "updated_at"
+    )
+    inlines = [ModerationActionInline]
+    
+    fieldsets = (
+        (None, {
+            "fields": ("reporter", "status")
+        }),
+        ("Reported Content", {
+            "fields": (
+                "content_type",
+                "object_id", 
+                "reported_object",
+                "reported_content_preview"
+            )
+        }),
+        ("Report Details", {
+            "fields": ("reason", "description", "evidence_url")
+        }),
+        ("Tracking", {
+            "fields": ("reporter_ip", "is_pending"),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at", "resolved_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def reported_content_preview(self, obj):
+        return obj.reported_content_preview
+    reported_content_preview.short_description = "Content Preview"
+
+    def is_pending(self, obj):
+        return obj.is_pending
+    is_pending.boolean = True
+    is_pending.short_description = "Pending"
+
+    actions = ['resolve_reports', 'dismiss_reports']
+
+    def resolve_reports(self, request, queryset):
+        """Bulk resolve reports"""
+        count = 0
+        for report in queryset:
+            if report.is_pending:
+                report.resolve(resolved_by=request.user)
+                count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully resolved {count} reports."
+        )
+    resolve_reports.short_description = "Resolve selected reports"
+
+    def dismiss_reports(self, request, queryset):
+        """Bulk dismiss reports"""
+        count = 0
+        for report in queryset:
+            if report.is_pending:
+                report.dismiss(dismissed_by=request.user)
+                count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully dismissed {count} reports."
+        )
+    dismiss_reports.short_description = "Dismiss selected reports"
+
+
+@admin.register(ModerationAction)
+class ModerationActionAdmin(admin.ModelAdmin):
+    list_display = (
+        "moderator",
+        "action",
+        "severity",
+        "affected_user",
+        "is_active",
+        "is_expired",
+        "is_reversed",
+        "created_at",
+        "expires_at"
+    )
+    list_filter = (
+        "action",
+        "severity",
+        "is_reversed",
+        "created_at",
+        "expires_at"
+    )
+    search_fields = (
+        "moderator__email",
+        "affected_user__email",
+        "notes",
+        "reversal_reason"
+    )
+    readonly_fields = (
+        "is_active",
+        "is_expired",
+        "created_at",
+        "updated_at"
+    )
+    
+    fieldsets = (
+        (None, {
+            "fields": ("moderator", "action", "severity")
+        }),
+        ("Target", {
+            "fields": ("report", "affected_user")
+        }),
+        ("Details", {
+            "fields": ("notes", "duration_days", "expires_at")
+        }),
+        ("Status", {
+            "fields": ("is_active", "is_expired", "is_reversed")
+        }),
+        ("Reversal", {
+            "fields": ("reversed_by", "reversed_at", "reversal_reason"),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def is_active(self, obj):
+        return obj.is_active
+    is_active.boolean = True
+    is_active.short_description = "Active"
+
+    def is_expired(self, obj):
+        return obj.is_expired
+    is_expired.boolean = True
+    is_expired.short_description = "Expired"
+
+    actions = ['reverse_actions']
+
+    def reverse_actions(self, request, queryset):
+        """Bulk reverse moderation actions"""
+        count = 0
+        for action in queryset:
+            if action.is_active and not action.is_reversed:
+                action.reverse(
+                    reversed_by=request.user,
+                    reason=f"Bulk reversal by admin {request.user.email}"
+                )
+                count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully reversed {count} moderation actions."
+        )
+    reverse_actions.short_description = "Reverse selected actions"

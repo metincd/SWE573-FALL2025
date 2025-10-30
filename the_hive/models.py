@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.core.validators import MinLengthValidator
 from django.db import models
 from django.utils import timezone
@@ -926,3 +928,293 @@ class ThankYouNote(models.Model):
     def message_preview(self) -> str:
         """Get a preview of the message"""
         return self.message[:100] + "..." if len(self.message) > 100 else self.message
+
+
+class Report(models.Model):
+    REPORT_REASONS = [
+        ("spam", _("Spam")),
+        ("inappropriate", _("Inappropriate Content")),
+        ("harassment", _("Harassment")),
+        ("fraud", _("Fraud/Scam")),
+        ("violence", _("Violence/Threats")),
+        ("copyright", _("Copyright Violation")),
+        ("misinformation", _("Misinformation")),
+        ("other", _("Other")),
+    ]
+
+    REPORT_STATUS = [
+        ("pending", _("Pending")),
+        ("under_review", _("Under Review")),
+        ("resolved", _("Resolved")),
+        ("dismissed", _("Dismissed")),
+        ("escalated", _("Escalated")),
+    ]
+
+    # Reporter information
+    reporter = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="submitted_reports",
+        verbose_name=_("reporter")
+    )
+    
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        verbose_name=_("content type")
+    )
+    object_id = models.PositiveIntegerField(_("object id"))
+    reported_object = GenericForeignKey("content_type", "object_id")
+    
+    # Report details
+    reason = models.CharField(
+        _("reason"),
+        max_length=20,
+        choices=REPORT_REASONS,
+        help_text=_("Primary reason for this report")
+    )
+    description = models.TextField(
+        _("description"),
+        help_text=_("Detailed description of the issue")
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=REPORT_STATUS,
+        default="pending"
+    )
+    
+    # Additional metadata
+    reporter_ip = models.GenericIPAddressField(
+        _("reporter IP"),
+        null=True,
+        blank=True,
+        help_text=_("IP address of the reporter for tracking")
+    )
+    evidence_url = models.URLField(
+        _("evidence URL"),
+        blank=True,
+        help_text=_("Optional link to additional evidence")
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("report")
+        verbose_name_plural = _("reports")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["reporter"]),
+            models.Index(fields=["content_type", "object_id"]),
+            models.Index(fields=["reason"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+        # Prevent duplicate reports from same user for same object
+        unique_together = ["reporter", "content_type", "object_id"]
+
+    def __str__(self) -> str:
+        return f"Report by {self.reporter.email}: {self.get_reason_display()}"
+
+    def resolve(self, resolved_by=None):
+        """Mark this report as resolved"""
+        self.status = "resolved"
+        self.resolved_at = timezone.now()
+        self.save()
+        
+        if resolved_by:
+            ModerationAction.objects.create(
+                report=self,
+                moderator=resolved_by,
+                action="resolved",
+                notes=f"Report resolved by {resolved_by.email}"
+            )
+
+    def dismiss(self, dismissed_by=None):
+        """Dismiss this report"""
+        self.status = "dismissed"
+        self.resolved_at = timezone.now()
+        self.save()
+        
+        if dismissed_by:
+            ModerationAction.objects.create(
+                report=self,
+                moderator=dismissed_by,
+                action="dismissed",
+                notes=f"Report dismissed by {dismissed_by.email}"
+            )
+
+    @property
+    def is_pending(self) -> bool:
+        """Check if report is still pending"""
+        return self.status == "pending"
+
+    @property
+    def reported_content_preview(self) -> str:
+        """Get a preview of the reported content"""
+        if hasattr(self.reported_object, 'body'):
+            content = self.reported_object.body
+        elif hasattr(self.reported_object, 'message'):
+            content = self.reported_object.message
+        elif hasattr(self.reported_object, 'title'):
+            content = self.reported_object.title
+        elif hasattr(self.reported_object, 'description'):
+            content = self.reported_object.description
+        else:
+            content = str(self.reported_object)
+        
+        return content[:100] + "..." if len(content) > 100 else content
+
+
+class ModerationAction(models.Model):
+    MODERATION_ACTIONS = [
+        ("warning_issued", _("Warning Issued")),
+        ("content_hidden", _("Content Hidden")),
+        ("content_removed", _("Content Removed")),
+        ("user_suspended", _("User Suspended")),
+        ("user_banned", _("User Banned")),
+        ("resolved", _("Report Resolved")),
+        ("dismissed", _("Report Dismissed")),
+        ("escalated", _("Escalated to Admin")),
+        ("reinstated", _("Content Reinstated")),
+        ("other", _("Other Action")),
+    ]
+
+    ACTION_SEVERITY = [
+        ("low", _("Low")),
+        ("medium", _("Medium")),
+        ("high", _("High")),
+        ("critical", _("Critical")),
+    ]
+
+    report = models.ForeignKey(
+        Report,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="moderation_actions",
+        verbose_name=_("related report")
+    )
+    
+    moderator = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="moderation_actions",
+        verbose_name=_("moderator")
+    )
+    
+    affected_user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="moderation_actions_received",
+        verbose_name=_("affected user"),
+        help_text=_("User who is affected by this moderation action")
+    )
+    
+    action = models.CharField(
+        _("action"),
+        max_length=30,
+        choices=MODERATION_ACTIONS,
+        help_text=_("Type of moderation action taken")
+    )
+    severity = models.CharField(
+        _("severity"),
+        max_length=20,
+        choices=ACTION_SEVERITY,
+        default="medium",
+        help_text=_("Severity level of this action")
+    )
+    notes = models.TextField(
+        _("notes"),
+        help_text=_("Detailed notes about the action taken")
+    )
+    
+    duration_days = models.PositiveIntegerField(
+        _("duration in days"),
+        null=True,
+        blank=True,
+        help_text=_("Duration for temporary actions (suspensions, etc.)")
+    )
+    expires_at = models.DateTimeField(
+        _("expires at"),
+        null=True,
+        blank=True,
+        help_text=_("When this action expires (for temporary actions)")
+    )
+    
+    is_reversed = models.BooleanField(
+        _("is reversed"),
+        default=False,
+        help_text=_("Whether this action has been reversed")
+    )
+    reversed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reversed_moderation_actions",
+        verbose_name=_("reversed by")
+    )
+    reversed_at = models.DateTimeField(null=True, blank=True)
+    reversal_reason = models.TextField(
+        _("reversal reason"),
+        blank=True,
+        help_text=_("Reason for reversing this action")
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("moderation action")
+        verbose_name_plural = _("moderation actions")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["report"]),
+            models.Index(fields=["moderator"]),
+            models.Index(fields=["affected_user"]),
+            models.Index(fields=["action"]),
+            models.Index(fields=["severity"]),
+            models.Index(fields=["is_reversed"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["expires_at"]),
+        ]
+
+    def __str__(self) -> str:
+        action_str = f"{self.get_action_display()} by {self.moderator.email}"
+        if self.affected_user:
+            action_str += f" (affects {self.affected_user.email})"
+        return action_str
+
+    def reverse(self, reversed_by, reason=""):
+        """Reverse this moderation action"""
+        self.is_reversed = True
+        self.reversed_by = reversed_by
+        self.reversed_at = timezone.now()
+        self.reversal_reason = reason
+        self.save()
+
+    @property
+    def is_active(self) -> bool:
+        """Check if this action is currently active (not reversed or expired)"""
+        if self.is_reversed:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        return True
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if this action has expired"""
+        if self.expires_at:
+            return timezone.now() > self.expires_at
+        return False
+
+    def save(self, *args, **kwargs):
+        if self.duration_days and not self.expires_at:
+            self.expires_at = timezone.now() + timezone.timedelta(days=self.duration_days)
+        super().save(*args, **kwargs)
