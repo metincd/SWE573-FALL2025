@@ -4,7 +4,7 @@ from .models import (
     User, Profile, Tag, Service, ServiceRequest, 
     ServiceSession, Completion, TimeAccount, TimeTransaction,
     Conversation, Message, Thread, Post, ThankYouNote,
-    Report, ModerationAction
+    Report, ModerationAction, Notification
 )
 
 
@@ -828,3 +828,196 @@ class ModerationActionAdmin(admin.ModelAdmin):
             f"Successfully reversed {count} moderation actions."
         )
     reverse_actions.short_description = "Reverse selected actions"
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "notification_type",
+        "title",
+        "priority",
+        "is_read",
+        "is_dismissed",
+        "is_sent",
+        "is_active_status",
+        "age_display",
+        "created_at"
+    )
+    list_filter = (
+        "notification_type",
+        "priority",
+        "is_read",
+        "is_dismissed",
+        "is_sent",
+        "created_at",
+        "expires_at"
+    )
+    search_fields = (
+        "user__email",
+        "title",
+        "message",
+        "notification_type"
+    )
+    readonly_fields = (
+        "age_display",
+        "is_active_status",
+        "is_unread_status",
+        "is_expired_status",
+        "is_urgent_status",
+        "created_at",
+        "updated_at",
+        "read_at",
+        "dismissed_at",
+        "sent_at"
+    )
+    
+    fieldsets = (
+        (None, {
+            "fields": ("user", "notification_type", "priority")
+        }),
+        ("Content", {
+            "fields": ("title", "message", "payload")
+        }),
+        ("Related Objects", {
+            "fields": ("related_service", "related_conversation", "related_thread"),
+            "classes": ("collapse",)
+        }),
+        ("Status", {
+            "fields": (
+                "is_read", "read_at",
+                "is_dismissed", "dismissed_at",
+                "is_sent", "sent_at", "delivery_channels"
+            )
+        }),
+        ("Status Info", {
+            "fields": (
+                "is_active_status", "is_unread_status", 
+                "is_expired_status", "is_urgent_status", "age_display"
+            ),
+            "classes": ("collapse",)
+        }),
+        ("Expiry", {
+            "fields": ("expires_at",),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def is_active_status(self, obj):
+        return obj.is_active
+    is_active_status.boolean = True
+    is_active_status.short_description = "Active"
+
+    def is_unread_status(self, obj):
+        return obj.is_unread
+    is_unread_status.boolean = True
+    is_unread_status.short_description = "Unread"
+
+    def is_expired_status(self, obj):
+        return obj.is_expired
+    is_expired_status.boolean = True
+    is_expired_status.short_description = "Expired"
+
+    def is_urgent_status(self, obj):
+        return obj.is_urgent
+    is_urgent_status.boolean = True
+    is_urgent_status.short_description = "Urgent"
+
+    def age_display(self, obj):
+        hours = obj.age_in_hours
+        if hours < 1:
+            return "< 1 hour"
+        elif hours < 24:
+            return f"{hours} hours"
+        else:
+            days = hours // 24
+            return f"{days} days"
+    age_display.short_description = "Age"
+
+    actions = [
+        'mark_as_read',
+        'mark_as_unread',
+        'dismiss_notifications',
+        'mark_as_sent',
+        'delete_expired'
+    ]
+
+    def mark_as_read(self, request, queryset):
+        """Mark selected notifications as read"""
+        count = 0
+        for notification in queryset:
+            if not notification.is_read:
+                notification.mark_as_read()
+                count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully marked {count} notifications as read."
+        )
+    mark_as_read.short_description = "Mark selected notifications as read"
+
+    def mark_as_unread(self, request, queryset):
+        """Mark selected notifications as unread"""
+        count = queryset.filter(is_read=True).update(
+            is_read=False,
+            read_at=None
+        )
+        
+        self.message_user(
+            request,
+            f"Successfully marked {count} notifications as unread."
+        )
+    mark_as_unread.short_description = "Mark selected notifications as unread"
+
+    def dismiss_notifications(self, request, queryset):
+        """Dismiss selected notifications"""
+        count = 0
+        for notification in queryset:
+            if not notification.is_dismissed:
+                notification.dismiss()
+                count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully dismissed {count} notifications."
+        )
+    dismiss_notifications.short_description = "Dismiss selected notifications"
+
+    def mark_as_sent(self, request, queryset):
+        """Mark selected notifications as sent"""
+        count = 0
+        for notification in queryset:
+            if not notification.is_sent:
+                notification.mark_as_sent(channels=["admin"])
+                count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully marked {count} notifications as sent."
+        )
+    mark_as_sent.short_description = "Mark selected notifications as sent"
+
+    def delete_expired(self, request, queryset):
+        """Delete expired notifications"""
+        from django.utils import timezone
+        expired_count = queryset.filter(
+            expires_at__lt=timezone.now()
+        ).count()
+        
+        queryset.filter(expires_at__lt=timezone.now()).delete()
+        
+        self.message_user(
+            request,
+            f"Successfully deleted {expired_count} expired notifications."
+        )
+    delete_expired.short_description = "Delete expired notifications"
+
+    # Override get_queryset for performance
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'user', 'related_service', 'related_conversation', 'related_thread'
+        )

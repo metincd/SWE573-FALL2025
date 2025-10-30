@@ -1218,3 +1218,273 @@ class ModerationAction(models.Model):
         if self.duration_days and not self.expires_at:
             self.expires_at = timezone.now() + timezone.timedelta(days=self.duration_days)
         super().save(*args, **kwargs)
+
+
+class Notification(models.Model):
+    NOTIFICATION_TYPES = [
+        # Service-related notifications
+        ("service_request", _("Service Request")),
+        ("service_accepted", _("Service Accepted")),
+        ("service_rejected", _("Service Rejected")),
+        ("service_completed", _("Service Completed")),
+        ("session_scheduled", _("Session Scheduled")),
+        ("session_reminder", _("Session Reminder")),
+        
+        # Time banking notifications
+        ("time_credited", _("Time Credited")),
+        ("time_debited", _("Time Debited")),
+        ("time_bonus", _("Time Bonus")),
+        ("low_balance", _("Low Balance Warning")),
+        
+        # Communication notifications
+        ("new_message", _("New Message")),
+        ("conversation_invite", _("Conversation Invite")),
+        ("thank_you_received", _("Thank You Note Received")),
+        
+        # Forum notifications
+        ("thread_reply", _("Thread Reply")),
+        ("thread_mention", _("Thread Mention")),
+        ("post_liked", _("Post Liked")),
+        
+        # Moderation notifications
+        ("content_flagged", _("Content Flagged")),
+        ("moderation_action", _("Moderation Action")),
+        ("report_resolved", _("Report Resolved")),
+        
+        # System notifications
+        ("system_announcement", _("System Announcement")),
+        ("maintenance_notice", _("Maintenance Notice")),
+        ("policy_update", _("Policy Update")),
+        ("account_warning", _("Account Warning")),
+        
+        # Community notifications
+        ("new_member", _("New Community Member")),
+        ("milestone_reached", _("Milestone Reached")),
+        ("community_event", _("Community Event")),
+    ]
+
+    PRIORITY_LEVELS = [
+        ("low", _("Low")),
+        ("normal", _("Normal")),
+        ("high", _("High")),
+        ("urgent", _("Urgent")),
+    ]
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+        verbose_name=_("user")
+    )
+    
+    notification_type = models.CharField(
+        _("notification type"),
+        max_length=30,
+        choices=NOTIFICATION_TYPES,
+        help_text=_("Type of notification")
+    )
+    title = models.CharField(
+        _("title"),
+        max_length=200,
+        help_text=_("Short notification title")
+    )
+    message = models.TextField(
+        _("message"),
+        help_text=_("Detailed notification message")
+    )
+    priority = models.CharField(
+        _("priority"),
+        max_length=10,
+        choices=PRIORITY_LEVELS,
+        default="normal",
+        help_text=_("Priority level of this notification")
+    )
+    
+    payload = models.JSONField(
+        _("payload"),
+        default=dict,
+        blank=True,
+        help_text=_("Additional data related to this notification")
+    )
+    
+    related_service = models.ForeignKey(
+        Service,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notifications",
+        verbose_name=_("related service")
+    )
+    related_conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notifications",
+        verbose_name=_("related conversation")
+    )
+    related_thread = models.ForeignKey(
+        Thread,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="notifications",
+        verbose_name=_("related thread")
+    )
+    
+    is_read = models.BooleanField(
+        _("is read"),
+        default=False,
+        help_text=_("Whether this notification has been read")
+    )
+    read_at = models.DateTimeField(
+        _("read at"),
+        null=True,
+        blank=True,
+        help_text=_("When this notification was read")
+    )
+    is_dismissed = models.BooleanField(
+        _("is dismissed"),
+        default=False,
+        help_text=_("Whether this notification has been dismissed")
+    )
+    dismissed_at = models.DateTimeField(
+        _("dismissed at"),
+        null=True,
+        blank=True
+    )
+    
+    is_sent = models.BooleanField(
+        _("is sent"),
+        default=False,
+        help_text=_("Whether this notification has been sent via external channels")
+    )
+    sent_at = models.DateTimeField(
+        _("sent at"),
+        null=True,
+        blank=True
+    )
+    delivery_channels = models.JSONField(
+        _("delivery channels"),
+        default=list,
+        blank=True,
+        help_text=_("Channels used to deliver this notification (email, push, etc.)")
+    )
+    
+    expires_at = models.DateTimeField(
+        _("expires at"),
+        null=True,
+        blank=True,
+        help_text=_("When this notification expires and should be hidden")
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("notification")
+        verbose_name_plural = _("notifications")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user"]),
+            models.Index(fields=["notification_type"]),
+            models.Index(fields=["priority"]),
+            models.Index(fields=["is_read"]),
+            models.Index(fields=["is_dismissed"]),
+            models.Index(fields=["is_sent"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["expires_at"]),
+            models.Index(fields=["user", "is_read"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_notification_type_display()} for {self.user.email}: {self.title}"
+
+    def mark_as_read(self):
+        """Mark this notification as read"""
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save()
+
+    def dismiss(self):
+        """Dismiss this notification"""
+        if not self.is_dismissed:
+            self.is_dismissed = True
+            self.dismissed_at = timezone.now()
+            self.save()
+
+    def mark_as_sent(self, channels=None):
+        """Mark this notification as sent"""
+        self.is_sent = True
+        self.sent_at = timezone.now()
+        if channels:
+            self.delivery_channels = channels
+        self.save()
+
+    @property
+    def is_unread(self) -> bool:
+        """Check if notification is unread"""
+        return not self.is_read
+
+    @property
+    def is_active(self) -> bool:
+        """Check if notification is active (not dismissed and not expired)"""
+        if self.is_dismissed:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        return True
+
+    @property
+    def is_expired(self) -> bool:
+        """Check if notification has expired"""
+        if self.expires_at:
+            return timezone.now() > self.expires_at
+        return False
+
+    @property
+    def is_urgent(self) -> bool:
+        """Check if notification is urgent priority"""
+        return self.priority == "urgent"
+
+    @property
+    def age_in_hours(self) -> int:
+        """Get notification age in hours"""
+        return int((timezone.now() - self.created_at).total_seconds() / 3600)
+
+    def get_action_url(self) -> str:
+        """Get the URL where user should be directed when clicking this notification"""
+        url_mapping = {
+            "service_request": f"/services/{self.related_service.id}/",
+            "new_message": f"/conversations/{self.related_conversation.id}/",
+            "thread_reply": f"/threads/{self.related_thread.id}/",
+        }
+        return url_mapping.get(self.notification_type, "/notifications/")
+
+    @classmethod
+    def create_notification(cls, user, notification_type, title, message, **kwargs):
+        """Factory method to create notifications"""
+        return cls.objects.create(
+            user=user,
+            notification_type=notification_type,
+            title=title,
+            message=message,
+            **kwargs
+        )
+
+    @classmethod
+    def bulk_notify_users(cls, users, notification_type, title, message, **kwargs):
+        """Create notifications for multiple users"""
+        notifications = []
+        for user in users:
+            notifications.append(
+                cls(
+                    user=user,
+                    notification_type=notification_type,
+                    title=title,
+                    message=message,
+                    **kwargs
+                )
+            )
+        return cls.objects.bulk_create(notifications)
