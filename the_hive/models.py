@@ -497,3 +497,127 @@ class TimeTransaction(models.Model):
             return float(self.amount)
         else:
             return -float(self.amount)
+
+
+class Conversation(models.Model):
+    participants = models.ManyToManyField(
+        User,
+        related_name="conversations",
+        verbose_name=_("participants"),
+        help_text=_("Users participating in this conversation"),
+    )
+    related_service = models.ForeignKey(
+        Service,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="conversations",
+        verbose_name=_("related service"),
+        help_text=_("Optional service this conversation is about"),
+    )
+    title = models.CharField(
+        _("title"),
+        max_length=200,
+        blank=True,
+        help_text=_("Optional conversation title"),
+    )
+    is_archived = models.BooleanField(
+        _("is archived"),
+        default=False,
+        help_text=_("Whether this conversation is archived"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("conversation")
+        verbose_name_plural = _("conversations")
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["related_service"]),
+            models.Index(fields=["is_archived"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["updated_at"]),
+        ]
+
+    def __str__(self) -> str:
+        if self.title:
+            return self.title
+        if self.related_service:
+            return f"Conversation about: {self.related_service.title}"
+        participant_emails = ", ".join([p.email for p in self.participants.all()[:2]])
+        return f"Conversation: {participant_emails}"
+
+    @property
+    def last_message(self):
+        """Get the last message in this conversation"""
+        return self.messages.order_by("-created_at").first()
+
+    @property
+    def unread_count_for_user(self, user):
+        """Get unread message count for a specific user"""
+        return self.messages.filter(is_read=False).exclude(sender=user).count()
+
+    def mark_as_read_for_user(self, user):
+        """Mark all messages as read for a specific user"""
+        self.messages.exclude(sender=user).update(is_read=True)
+
+
+class Message(models.Model):
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        verbose_name=_("conversation"),
+    )
+    sender = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="sent_messages",
+        verbose_name=_("sender"),
+    )
+    body = models.TextField(_("message body"), help_text=_("The message content"))
+    is_read = models.BooleanField(
+        _("is read"),
+        default=False,
+        help_text=_("Whether this message has been read by recipients"),
+    )
+    read_at = models.DateTimeField(
+        _("read at"),
+        null=True,
+        blank=True,
+        help_text=_("When this message was first read"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("message")
+        verbose_name_plural = _("messages")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["conversation"]),
+            models.Index(fields=["sender"]),
+            models.Index(fields=["is_read"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        preview = self.body[:50] + "..." if len(self.body) > 50 else self.body
+        return f"{self.sender.email}: {preview}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.conversation.save()
+
+    def mark_as_read(self):
+        """Mark this message as read"""
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save()
+
+    @property
+    def is_recent(self) -> bool:
+        """Check if message was sent in the last 24 hours"""
+        return (timezone.now() - self.created_at).days < 1

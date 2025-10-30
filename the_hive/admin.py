@@ -2,7 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from .models import (
     User, Profile, Tag, Service, ServiceRequest, 
-    ServiceSession, Completion, TimeAccount, TimeTransaction
+    ServiceSession, Completion, TimeAccount, TimeTransaction,
+    Conversation, Message
 )
 
 
@@ -314,3 +315,109 @@ class TimeTransactionAdmin(admin.ModelAdmin):
             "classes": ("collapse",)
         }),
     )
+
+
+class MessageInline(admin.TabularInline):
+    model = Message
+    extra = 0
+    readonly_fields = ("created_at", "read_at", "is_recent")
+    fields = (
+        "sender",
+        "body",
+        "is_read",
+        "read_at",
+        "is_recent",
+        "created_at"
+    )
+
+
+@admin.register(Conversation)
+class ConversationAdmin(admin.ModelAdmin):
+    list_display = (
+        "__str__",
+        "related_service",
+        "is_archived",
+        "participant_count",
+        "last_message_preview",
+        "created_at",
+        "updated_at"
+    )
+    list_filter = ("is_archived", "created_at", "updated_at")
+    search_fields = (
+        "title",
+        "related_service__title",
+        "participants__email",
+        "messages__body"
+    )
+    filter_horizontal = ("participants",)
+    readonly_fields = ("last_message", "created_at", "updated_at")
+    inlines = [MessageInline]
+    
+    fieldsets = (
+        (None, {
+            "fields": ("participants", "title", "is_archived")
+        }),
+        ("Related", {
+            "fields": ("related_service",)
+        }),
+        ("Info", {
+            "fields": ("last_message",),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def participant_count(self, obj):
+        return obj.participants.count()
+    participant_count.short_description = "Participants"
+
+    def last_message_preview(self, obj):
+        last_msg = obj.last_message
+        if last_msg:
+            preview = last_msg.body[:30] + "..." if len(last_msg.body) > 30 else last_msg.body
+            return f"{last_msg.sender.email}: {preview}"
+        return "-"
+    last_message_preview.short_description = "Last Message"
+
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display = (
+        "conversation",
+        "sender",
+        "body_preview",
+        "is_read",
+        "is_recent",
+        "created_at",
+        "read_at"
+    )
+    list_filter = ("is_read", "created_at", "read_at")
+    search_fields = (
+        "conversation__title",
+        "sender__email",
+        "body"
+    )
+    readonly_fields = ("is_recent", "created_at", "updated_at")
+    
+    fieldsets = (
+        (None, {
+            "fields": ("conversation", "sender")
+        }),
+        ("Content", {
+            "fields": ("body",)
+        }),
+        ("Status", {
+            "fields": ("is_read", "read_at", "is_recent")
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def body_preview(self, obj):
+        return obj.body[:50] + "..." if len(obj.body) > 50 else obj.body
+    body_preview.short_description = "Message Preview"
