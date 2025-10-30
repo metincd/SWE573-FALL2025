@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from .models import (
     User, Profile, Tag, Service, ServiceRequest, 
     ServiceSession, Completion, TimeAccount, TimeTransaction,
-    Conversation, Message
+    Conversation, Message, Thread, Post, ThankYouNote
 )
 
 
@@ -421,3 +421,210 @@ class MessageAdmin(admin.ModelAdmin):
     def body_preview(self, obj):
         return obj.body[:50] + "..." if len(obj.body) > 50 else obj.body
     body_preview.short_description = "Message Preview"
+
+
+# Forum Admin
+
+class PostInline(admin.TabularInline):
+    model = Post
+    extra = 0
+    readonly_fields = ("is_recent", "created_at")
+    fields = (
+        "author",
+        "body",
+        "status",
+        "is_flagged",
+        "is_recent",
+        "created_at"
+    )
+
+
+@admin.register(Thread)
+class ThreadAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "author",
+        "status",
+        "is_flagged",
+        "post_count",
+        "views_count",
+        "is_active",
+        "created_at",
+        "updated_at"
+    )
+    list_filter = (
+        "status",
+        "is_flagged",
+        "created_at",
+        "updated_at",
+        "tags"
+    )
+    search_fields = (
+        "title",
+        "author__email",
+        "posts__body",
+        "flagged_reason"
+    )
+    filter_horizontal = ("tags",)
+    readonly_fields = (
+        "post_count",
+        "last_post",
+        "is_active",
+        "views_count",
+        "created_at",
+        "updated_at"
+    )
+    inlines = [PostInline]
+    
+    fieldsets = (
+        (None, {
+            "fields": ("title", "author", "status")
+        }),
+        ("Content", {
+            "fields": ("tags", "related_service")
+        }),
+        ("Flagging", {
+            "fields": (
+                "is_flagged",
+                "flagged_reason",
+                "flagged_by",
+                "flagged_at"
+            ),
+            "classes": ("collapse",)
+        }),
+        ("Statistics", {
+            "fields": ("views_count", "post_count", "is_active", "last_post"),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def post_count(self, obj):
+        return obj.post_count
+    post_count.short_description = "Posts"
+
+    def is_active(self, obj):
+        return obj.is_active
+    is_active.boolean = True
+    is_active.short_description = "Active"
+
+
+@admin.register(Post)
+class PostAdmin(admin.ModelAdmin):
+    list_display = (
+        "thread",
+        "author",
+        "body_preview",
+        "status",
+        "is_flagged",
+        "is_recent",
+        "created_at"
+    )
+    list_filter = (
+        "status",
+        "is_flagged",
+        "created_at",
+        "thread__status"
+    )
+    search_fields = (
+        "thread__title",
+        "author__email",
+        "body",
+        "flagged_reason"
+    )
+    readonly_fields = ("is_recent", "created_at", "updated_at")
+    
+    fieldsets = (
+        (None, {
+            "fields": ("thread", "author", "status")
+        }),
+        ("Content", {
+            "fields": ("body",)
+        }),
+        ("Flagging", {
+            "fields": (
+                "is_flagged",
+                "flagged_reason",
+                "flagged_by",
+                "flagged_at"
+            ),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("is_recent", "created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def body_preview(self, obj):
+        return obj.body[:50] + "..." if len(obj.body) > 50 else obj.body
+    body_preview.short_description = "Post Preview"
+
+    def is_recent(self, obj):
+        return obj.is_recent
+    is_recent.boolean = True
+    is_recent.short_description = "Recent"
+
+
+@admin.register(ThankYouNote)
+class ThankYouNoteAdmin(admin.ModelAdmin):
+    list_display = (
+        "from_user",
+        "to_user",
+        "message_preview",
+        "status",
+        "related_service",
+        "is_unread",
+        "created_at",
+        "read_at"
+    )
+    list_filter = (
+        "status",
+        "created_at",
+        "read_at",
+        "related_service"
+    )
+    search_fields = (
+        "from_user__email",
+        "to_user__email",
+        "message",
+        "related_service__title"
+    )
+    readonly_fields = (
+        "message_preview",
+        "is_unread",
+        "created_at",
+        "updated_at"
+    )
+    
+    fieldsets = (
+        (None, {
+            "fields": ("from_user", "to_user", "status")
+        }),
+        ("Content", {
+            "fields": ("message", "message_preview")
+        }),
+        ("Related Objects", {
+            "fields": ("related_service", "related_session"),
+            "classes": ("collapse",)
+        }),
+        ("Status", {
+            "fields": ("is_unread", "read_at")
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def message_preview(self, obj):
+        return obj.message_preview
+    message_preview.short_description = "Message Preview"
+
+    def is_unread(self, obj):
+        return obj.is_unread
+    is_unread.boolean = True
+    is_unread.short_description = "Unread"

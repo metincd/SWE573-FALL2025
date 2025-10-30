@@ -621,3 +621,308 @@ class Message(models.Model):
     def is_recent(self) -> bool:
         """Check if message was sent in the last 24 hours"""
         return (timezone.now() - self.created_at).days < 1
+
+
+class Thread(models.Model):
+    THREAD_STATUS = [
+        ("open", _("Open")),
+        ("closed", _("Closed")),
+        ("pinned", _("Pinned")),
+    ]
+
+    title = models.CharField(
+        _("title"),
+        max_length=200,
+        help_text=_("Thread title")
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="authored_threads",
+        verbose_name=_("author")
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=THREAD_STATUS,
+        default="open"
+    )
+    is_flagged = models.BooleanField(
+        _("is flagged"),
+        default=False,
+        help_text=_("Whether this thread has been flagged for moderation")
+    )
+    flagged_reason = models.TextField(
+        _("flagged reason"),
+        blank=True,
+        help_text=_("Reason why this thread was flagged")
+    )
+    flagged_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="flagged_threads",
+        verbose_name=_("flagged by")
+    )
+    flagged_at = models.DateTimeField(null=True, blank=True)
+    
+    # Related objects
+    related_service = models.ForeignKey(
+        Service,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="related_threads",
+        verbose_name=_("related service"),
+        help_text=_("Optional service this thread is about")
+    )
+    tags = models.ManyToManyField(
+        Tag,
+        related_name="threads",
+        blank=True,
+        verbose_name=_("tags")
+    )
+    
+    views_count = models.PositiveIntegerField(
+        _("views count"),
+        default=0,
+        help_text=_("Number of times this thread has been viewed")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("thread")
+        verbose_name_plural = _("threads")
+        ordering = ["-updated_at"]
+        indexes = [
+            models.Index(fields=["author"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["is_flagged"]),
+            models.Index(fields=["related_service"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["updated_at"]),
+            models.Index(fields=["views_count"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.title
+
+    @property
+    def post_count(self) -> int:
+        """Get total number of posts in this thread"""
+        return self.posts.count()
+
+    @property
+    def last_post(self):
+        """Get the last post in this thread"""
+        return self.posts.order_by('-created_at').first()
+
+    @property
+    def is_active(self) -> bool:
+        """Check if thread has been active in the last 7 days"""
+        if self.last_post:
+            return (timezone.now() - self.last_post.created_at).days <= 7
+        return (timezone.now() - self.created_at).days <= 7
+
+    def flag(self, user, reason=""):
+        """Flag this thread for moderation"""
+        self.is_flagged = True
+        self.flagged_by = user
+        self.flagged_reason = reason
+        self.flagged_at = timezone.now()
+        self.save()
+
+    def unflag(self):
+        """Remove flag from this thread"""
+        self.is_flagged = False
+        self.flagged_by = None
+        self.flagged_reason = ""
+        self.flagged_at = None
+        self.save()
+
+
+class Post(models.Model):
+    POST_STATUS = [
+        ("published", _("Published")),
+        ("hidden", _("Hidden")),
+        ("flagged", _("Flagged")),
+    ]
+
+    thread = models.ForeignKey(
+        Thread,
+        on_delete=models.CASCADE,
+        related_name="posts",
+        verbose_name=_("thread")
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="forum_posts",
+        verbose_name=_("author")
+    )
+    body = models.TextField(
+        _("post body"),
+        help_text=_("The post content")
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=POST_STATUS,
+        default="published"
+    )
+    is_flagged = models.BooleanField(
+        _("is flagged"),
+        default=False,
+        help_text=_("Whether this post has been flagged for moderation")
+    )
+    flagged_reason = models.TextField(
+        _("flagged reason"),
+        blank=True,
+        help_text=_("Reason why this post was flagged")
+    )
+    flagged_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="flagged_posts",
+        verbose_name=_("flagged by")
+    )
+    flagged_at = models.DateTimeField(null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("post")
+        verbose_name_plural = _("posts")
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["thread"]),
+            models.Index(fields=["author"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["is_flagged"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        preview = self.body[:50] + "..." if len(self.body) > 50 else self.body
+        return f"{self.author.email} in {self.thread.title}: {preview}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.thread.save()
+
+    def flag(self, user, reason=""):
+        """Flag this post for moderation"""
+        self.is_flagged = True
+        self.flagged_by = user
+        self.flagged_reason = reason
+        self.flagged_at = timezone.now()
+        self.status = "flagged"
+        self.save()
+
+    def unflag(self):
+        """Remove flag from this post"""
+        self.is_flagged = False
+        self.flagged_by = None
+        self.flagged_reason = ""
+        self.flagged_at = None
+        self.status = "published"
+        self.save()
+
+    @property
+    def is_recent(self) -> bool:
+        """Check if post was created in the last 24 hours"""
+        return (timezone.now() - self.created_at).days < 1
+
+
+class ThankYouNote(models.Model):
+    NOTE_STATUS = [
+        ("sent", _("Sent")),
+        ("read", _("Read")),
+        ("archived", _("Archived")),
+    ]
+
+    from_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="sent_thank_you_notes",
+        verbose_name=_("from user")
+    )
+    to_user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="received_thank_you_notes",
+        verbose_name=_("to user")
+    )
+    message = models.TextField(
+        _("thank you message"),
+        help_text=_("Personal thank you message")
+    )
+    status = models.CharField(
+        _("status"),
+        max_length=20,
+        choices=NOTE_STATUS,
+        default="sent"
+    )
+    
+    # Optional relationships
+    related_service = models.ForeignKey(
+        Service,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="thank_you_notes",
+        verbose_name=_("related service"),
+        help_text=_("Service this thank you note is about")
+    )
+    related_session = models.ForeignKey(
+        ServiceSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="thank_you_notes",
+        verbose_name=_("related session"),
+        help_text=_("Session this thank you note is about")
+    )
+    
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("thank you note")
+        verbose_name_plural = _("thank you notes")
+        ordering = ["-created_at"]
+        unique_together = ["from_user", "to_user", "related_service"]  # One thank you per service
+        indexes = [
+            models.Index(fields=["from_user"]),
+            models.Index(fields=["to_user"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["related_service"]),
+            models.Index(fields=["related_session"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Thank you from {self.from_user.email} to {self.to_user.email}"
+
+    def mark_as_read(self):
+        """Mark this thank you note as read"""
+        if self.status == "sent":
+            self.status = "read"
+            self.read_at = timezone.now()
+            self.save()
+
+    @property
+    def is_unread(self) -> bool:
+        """Check if this thank you note is unread"""
+        return self.status == "sent"
+
+    @property
+    def message_preview(self) -> str:
+        """Get a preview of the message"""
+        return self.message[:100] + "..." if len(self.message) > 100 else self.message
