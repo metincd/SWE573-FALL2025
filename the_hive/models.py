@@ -1488,3 +1488,451 @@ class Notification(models.Model):
                 )
             )
         return cls.objects.bulk_create(notifications)
+
+
+class Review(models.Model):
+    RATING_CHOICES = [
+        (1, _("1 - Poor")),
+        (2, _("2 - Fair")),
+        (3, _("3 - Good")),
+        (4, _("4 - Very Good")),
+        (5, _("5 - Excellent")),
+    ]
+
+    REVIEW_TYPES = [
+        ("service_provider", _("Service Provider Review")),
+        ("service_receiver", _("Service Receiver Review")),
+        ("service_quality", _("Service Quality Review")),
+    ]
+
+    # Core review information
+    reviewer = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="reviews_given",
+        verbose_name=_("reviewer")
+    )
+    reviewee = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="reviews_received",
+        verbose_name=_("reviewee")
+    )
+    
+    # What's being reviewed
+    review_type = models.CharField(
+        _("review type"),
+        max_length=20,
+        choices=REVIEW_TYPES,
+        help_text=_("Type of review - provider, receiver, or service quality")
+    )
+    
+    # Related objects
+    related_service = models.ForeignKey(
+        Service,
+        on_delete=models.CASCADE,
+        related_name="reviews",
+        verbose_name=_("related service")
+    )
+    related_session = models.ForeignKey(
+        ServiceSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviews",
+        verbose_name=_("related session")
+    )
+    related_completion = models.ForeignKey(
+        Completion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviews",
+        verbose_name=_("related completion")
+    )
+    
+    # Review content
+    rating = models.PositiveSmallIntegerField(
+        _("rating"),
+        choices=RATING_CHOICES,
+        help_text=_("Rating from 1 (poor) to 5 (excellent)")
+    )
+    title = models.CharField(
+        _("review title"),
+        max_length=200,
+        help_text=_("Short title summarizing the review")
+    )
+    content = models.TextField(
+        _("review content"),
+        help_text=_("Detailed review content")
+    )
+    
+    # Review metadata
+    is_anonymous = models.BooleanField(
+        _("is anonymous"),
+        default=False,
+        help_text=_("Whether this review should be shown anonymously")
+    )
+    is_verified = models.BooleanField(
+        _("is verified"),
+        default=False,
+        help_text=_("Whether this review has been verified by the system")
+    )
+    is_featured = models.BooleanField(
+        _("is featured"),
+        default=False,
+        help_text=_("Whether this review should be featured prominently")
+    )
+    
+    # Interaction tracking
+    helpful_count = models.PositiveIntegerField(
+        _("helpful count"),
+        default=0,
+        help_text=_("Number of users who found this review helpful")
+    )
+    report_count = models.PositiveIntegerField(
+        _("report count"),
+        default=0,
+        help_text=_("Number of times this review has been reported")
+    )
+    
+    # Status and moderation
+    is_published = models.BooleanField(
+        _("is published"),
+        default=True,
+        help_text=_("Whether this review is visible to others")
+    )
+    is_flagged = models.BooleanField(
+        _("is flagged"),
+        default=False,
+        help_text=_("Whether this review has been flagged for moderation")
+    )
+    moderation_notes = models.TextField(
+        _("moderation notes"),
+        blank=True,
+        help_text=_("Internal notes for moderators")
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    published_at = models.DateTimeField(
+        _("published at"),
+        null=True,
+        blank=True
+    )
+
+    class Meta:
+        verbose_name = _("review")
+        verbose_name_plural = _("reviews")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["reviewer"]),
+            models.Index(fields=["reviewee"]),
+            models.Index(fields=["related_service"]),
+            models.Index(fields=["review_type"]),
+            models.Index(fields=["rating"]),
+            models.Index(fields=["is_published"]),
+            models.Index(fields=["is_flagged"]),
+            models.Index(fields=["helpful_count"]),
+            models.Index(fields=["created_at"]),
+            models.Index(fields=["published_at"]),
+        ]
+        # One review per reviewer-reviewee-service combination
+        unique_together = ["reviewer", "reviewee", "related_service", "review_type"]
+
+    def __str__(self) -> str:
+        anonymous_label = " (Anonymous)" if self.is_anonymous else ""
+        return f"{self.rating}⭐ Review by {self.reviewer.email}{anonymous_label}: {self.title}"
+
+    def save(self, *args, **kwargs):
+        if self.is_published and not self.published_at:
+            self.published_at = timezone.now()
+        super().save(*args, **kwargs)
+
+    def mark_helpful(self, user):
+        """Mark this review as helpful by a user"""
+        helpful_vote, created = ReviewHelpfulVote.objects.get_or_create(
+            review=self,
+            user=user
+        )
+        if created:
+            self.helpful_count += 1
+            self.save()
+        return created
+
+    def unmark_helpful(self, user):
+        """Remove helpful mark from this review by a user"""
+        deleted, _ = ReviewHelpfulVote.objects.filter(
+            review=self,
+            user=user
+        ).delete()
+        if deleted:
+            self.helpful_count = max(0, self.helpful_count - 1)
+            self.save()
+        return deleted > 0
+
+    @property
+    def is_recent(self) -> bool:
+        """Check if review was posted in the last 30 days"""
+        return (timezone.now() - self.created_at).days <= 30
+
+    @property
+    def rating_display(self) -> str:
+        """Get star rating display"""
+        return "⭐" * self.rating + "☆" * (5 - self.rating)
+
+    @property
+    def is_positive(self) -> bool:
+        """Check if review is positive (4-5 stars)"""
+        return self.rating >= 4
+
+    @property
+    def is_negative(self) -> bool:
+        """Check if review is negative (1-2 stars)"""
+        return self.rating <= 2
+
+    @classmethod
+    def get_average_rating_for_user(cls, user, review_type=None):
+        """Get average rating for a user"""
+        queryset = cls.objects.filter(
+            reviewee=user,
+            is_published=True
+        )
+        if review_type:
+            queryset = queryset.filter(review_type=review_type)
+        
+        from django.db.models import Avg
+        result = queryset.aggregate(avg_rating=Avg('rating'))
+        return result['avg_rating'] or 0
+
+    @classmethod
+    def get_rating_distribution_for_user(cls, user, review_type=None):
+        """Get rating distribution for a user"""
+        queryset = cls.objects.filter(
+            reviewee=user,
+            is_published=True
+        )
+        if review_type:
+            queryset = queryset.filter(review_type=review_type)
+        
+        from django.db.models import Count
+        distribution = queryset.values('rating').annotate(
+            count=Count('rating')
+        ).order_by('rating')
+        
+        return {item['rating']: item['count'] for item in distribution}
+
+
+class ReviewHelpfulVote(models.Model):
+    """Track which users found which reviews helpful"""
+    review = models.ForeignKey(
+        Review,
+        on_delete=models.CASCADE,
+        related_name="helpful_votes",
+        verbose_name=_("review")
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="helpful_votes",
+        verbose_name=_("user")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("review helpful vote")
+        verbose_name_plural = _("review helpful votes")
+        unique_together = ["review", "user"]
+        indexes = [
+            models.Index(fields=["review"]),
+            models.Index(fields=["user"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.email} found review helpful: {self.review.title}"
+
+
+class UserRating(models.Model):
+    """Aggregated rating information for users"""
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="rating_summary",
+        verbose_name=_("user")
+    )
+    
+    # Overall ratings
+    overall_rating = models.DecimalField(
+        _("overall rating"),
+        max_digits=3,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Average rating across all review types")
+    )
+    overall_review_count = models.PositiveIntegerField(
+        _("overall review count"),
+        default=0
+    )
+    
+    # Provider ratings
+    provider_rating = models.DecimalField(
+        _("provider rating"),
+        max_digits=3,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Average rating as a service provider")
+    )
+    provider_review_count = models.PositiveIntegerField(
+        _("provider review count"),
+        default=0
+    )
+    
+    # Receiver ratings
+    receiver_rating = models.DecimalField(
+        _("receiver rating"),
+        max_digits=3,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Average rating as a service receiver")
+    )
+    receiver_review_count = models.PositiveIntegerField(
+        _("receiver review count"),
+        default=0
+    )
+    
+    # Service quality ratings
+    service_quality_rating = models.DecimalField(
+        _("service quality rating"),
+        max_digits=3,
+        decimal_places=2,
+        default=0.00,
+        help_text=_("Average rating for service quality")
+    )
+    service_quality_review_count = models.PositiveIntegerField(
+        _("service quality review count"),
+        default=0
+    )
+    
+    # Rating distribution (JSON field to store star counts)
+    rating_distribution = models.JSONField(
+        _("rating distribution"),
+        default=dict,
+        help_text=_("Distribution of ratings (1-5 stars)")
+    )
+    
+    # Metadata
+    last_reviewed_at = models.DateTimeField(
+        _("last reviewed at"),
+        null=True,
+        blank=True
+    )
+    is_verified_reviewer = models.BooleanField(
+        _("is verified reviewer"),
+        default=False,
+        help_text=_("Whether user is a verified/trusted reviewer")
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("user rating summary")
+        verbose_name_plural = _("user rating summaries")
+        indexes = [
+            models.Index(fields=["overall_rating"]),
+            models.Index(fields=["provider_rating"]),
+            models.Index(fields=["receiver_rating"]),
+            models.Index(fields=["overall_review_count"]),
+            models.Index(fields=["last_reviewed_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"Rating Summary for {self.user.email}: {self.overall_rating}⭐ ({self.overall_review_count} reviews)"
+
+    def update_ratings(self):
+        """Recalculate all rating averages from reviews"""
+        from django.db.models import Avg, Count
+        
+        # Get all published reviews for this user
+        reviews = Review.objects.filter(
+            reviewee=self.user,
+            is_published=True
+        )
+        
+        # Overall stats
+        overall_stats = reviews.aggregate(
+            avg_rating=Avg('rating'),
+            review_count=Count('id')
+        )
+        self.overall_rating = overall_stats['avg_rating'] or 0
+        self.overall_review_count = overall_stats['review_count']
+        
+        # Provider stats
+        provider_stats = reviews.filter(
+            review_type='service_provider'
+        ).aggregate(
+            avg_rating=Avg('rating'),
+            review_count=Count('id')
+        )
+        self.provider_rating = provider_stats['avg_rating'] or 0
+        self.provider_review_count = provider_stats['review_count']
+        
+        # Receiver stats
+        receiver_stats = reviews.filter(
+            review_type='service_receiver'
+        ).aggregate(
+            avg_rating=Avg('rating'),
+            review_count=Count('id')
+        )
+        self.receiver_rating = receiver_stats['avg_rating'] or 0
+        self.receiver_review_count = receiver_stats['review_count']
+        
+        # Service quality stats
+        quality_stats = reviews.filter(
+            review_type='service_quality'
+        ).aggregate(
+            avg_rating=Avg('rating'),
+            review_count=Count('id')
+        )
+        self.service_quality_rating = quality_stats['avg_rating'] or 0
+        self.service_quality_review_count = quality_stats['review_count']
+        
+        # Rating distribution
+        distribution = reviews.values('rating').annotate(
+            count=Count('rating')
+        )
+        self.rating_distribution = {
+            str(item['rating']): item['count'] for item in distribution
+        }
+        
+        # Update last reviewed date
+        last_review = reviews.order_by('-created_at').first()
+        if last_review:
+            self.last_reviewed_at = last_review.created_at
+        
+        self.save()
+
+    @property
+    def has_ratings(self) -> bool:
+        """Check if user has any ratings"""
+        return self.overall_review_count > 0
+
+    @property
+    def rating_level(self) -> str:
+        """Get descriptive rating level"""
+        if self.overall_rating >= 4.5:
+            return "Excellent"
+        elif self.overall_rating >= 4.0:
+            return "Very Good"
+        elif self.overall_rating >= 3.0:
+            return "Good"
+        elif self.overall_rating >= 2.0:
+            return "Fair"
+        else:
+            return "Poor"
+
+    @property
+    def is_highly_rated(self) -> bool:
+        """Check if user is highly rated (4+ stars with 5+ reviews)"""
+        return self.overall_rating >= 4.0 and self.overall_review_count >= 5

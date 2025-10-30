@@ -1,10 +1,12 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.utils import timezone
 from .models import (
     User, Profile, Tag, Service, ServiceRequest, 
     ServiceSession, Completion, TimeAccount, TimeTransaction,
     Conversation, Message, Thread, Post, ThankYouNote,
-    Report, ModerationAction, Notification
+    Report, ModerationAction, Notification, Review, 
+    ReviewHelpfulVote, UserRating
 )
 
 
@@ -1021,3 +1023,297 @@ class NotificationAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related(
             'user', 'related_service', 'related_conversation', 'related_thread'
         )
+
+
+class ReviewHelpfulVoteInline(admin.TabularInline):
+    model = ReviewHelpfulVote
+    extra = 0
+    readonly_fields = ("user", "created_at")
+
+
+@admin.register(Review)
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = (
+        "reviewer",
+        "reviewee", 
+        "rating_display_admin",
+        "review_type",
+        "related_service",
+        "is_published",
+        "is_flagged",
+        "helpful_count",
+        "is_recent_admin",
+        "created_at"
+    )
+    list_filter = (
+        "rating",
+        "review_type",
+        "is_published",
+        "is_flagged",
+        "is_anonymous",
+        "is_featured",
+        "created_at"
+    )
+    search_fields = (
+        "reviewer__email",
+        "reviewee__email",
+        "title",
+        "content",
+        "related_service__title"
+    )
+    readonly_fields = (
+        "helpful_count",
+        "report_count",
+        "rating_display_admin",
+        "is_recent_admin",
+        "created_at",
+        "updated_at",
+        "published_at"
+    )
+    inlines = [ReviewHelpfulVoteInline]
+    
+    fieldsets = (
+        (None, {
+            "fields": ("reviewer", "reviewee", "review_type")
+        }),
+        ("Related Objects", {
+            "fields": ("related_service", "related_session", "related_completion")
+        }),
+        ("Review Content", {
+            "fields": ("rating", "rating_display_admin", "title", "content")
+        }),
+        ("Settings", {
+            "fields": (
+                "is_anonymous", "is_verified", "is_featured",
+                "is_published", "is_flagged"
+            )
+        }),
+        ("Statistics", {
+            "fields": ("helpful_count", "report_count", "is_recent_admin"),
+            "classes": ("collapse",)
+        }),
+        ("Moderation", {
+            "fields": ("moderation_notes",),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("created_at", "updated_at", "published_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def rating_display_admin(self, obj):
+        return obj.rating_display
+    rating_display_admin.short_description = "Rating"
+
+    def is_recent_admin(self, obj):
+        return obj.is_recent
+    is_recent_admin.boolean = True
+    is_recent_admin.short_description = "Recent"
+
+    actions = ['publish_reviews', 'unpublish_reviews', 'feature_reviews', 'verify_reviews']
+
+    def publish_reviews(self, request, queryset):
+        """Publish selected reviews"""
+        count = queryset.filter(is_published=False).update(
+            is_published=True,
+            published_at=timezone.now()
+        )
+        self.message_user(
+            request,
+            f"Successfully published {count} reviews."
+        )
+    publish_reviews.short_description = "Publish selected reviews"
+
+    def unpublish_reviews(self, request, queryset):
+        """Unpublish selected reviews"""
+        count = queryset.filter(is_published=True).update(is_published=False)
+        self.message_user(
+            request,
+            f"Successfully unpublished {count} reviews."
+        )
+    unpublish_reviews.short_description = "Unpublish selected reviews"
+
+    def feature_reviews(self, request, queryset):
+        """Feature selected reviews"""
+        count = queryset.filter(is_featured=False).update(is_featured=True)
+        self.message_user(
+            request,
+            f"Successfully featured {count} reviews."
+        )
+    feature_reviews.short_description = "Feature selected reviews"
+
+    def verify_reviews(self, request, queryset):
+        """Verify selected reviews"""
+        count = queryset.filter(is_verified=False).update(is_verified=True)
+        self.message_user(
+            request,
+            f"Successfully verified {count} reviews."
+        )
+    verify_reviews.short_description = "Verify selected reviews"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'reviewer', 'reviewee', 'related_service', 'related_session', 'related_completion'
+        )
+
+
+@admin.register(ReviewHelpfulVote)
+class ReviewHelpfulVoteAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "review_title_preview",
+        "review_rating",
+        "created_at"
+    )
+    list_filter = ("created_at",)
+    search_fields = (
+        "user__email",
+        "review__title",
+        "review__reviewer__email",
+        "review__reviewee__email"
+    )
+    readonly_fields = ("created_at",)
+    
+    fieldsets = (
+        (None, {
+            "fields": ("user", "review")
+        }),
+        ("Timestamps", {
+            "fields": ("created_at",),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def review_title_preview(self, obj):
+        return obj.review.title[:50] + "..." if len(obj.review.title) > 50 else obj.review.title
+    review_title_preview.short_description = "Review Title"
+
+    def review_rating(self, obj):
+        return obj.review.rating_display
+    review_rating.short_description = "Rating"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'review')
+
+
+@admin.register(UserRating)
+class UserRatingAdmin(admin.ModelAdmin):
+    list_display = (
+        "user",
+        "overall_rating_display",
+        "overall_review_count",
+        "provider_rating_display", 
+        "receiver_rating_display",
+        "is_highly_rated_admin",
+        "rating_level_admin",
+        "last_reviewed_at"
+    )
+    list_filter = (
+        "overall_rating",
+        "provider_rating",
+        "receiver_rating",
+        "is_verified_reviewer",
+        "last_reviewed_at"
+    )
+    search_fields = (
+        "user__email",
+        "user__first_name",
+        "user__last_name"
+    )
+    readonly_fields = (
+        "overall_rating",
+        "overall_review_count",
+        "provider_rating",
+        "provider_review_count", 
+        "receiver_rating",
+        "receiver_review_count",
+        "service_quality_rating",
+        "service_quality_review_count",
+        "rating_distribution",
+        "last_reviewed_at",
+        "is_highly_rated_admin",
+        "rating_level_admin",
+        "created_at",
+        "updated_at"
+    )
+    
+    fieldsets = (
+        (None, {
+            "fields": ("user", "is_verified_reviewer")
+        }),
+        ("Overall Ratings", {
+            "fields": (
+                "overall_rating", "overall_review_count",
+                "rating_level_admin", "is_highly_rated_admin"
+            )
+        }),
+        ("Detailed Ratings", {
+            "fields": (
+                "provider_rating", "provider_review_count",
+                "receiver_rating", "receiver_review_count", 
+                "service_quality_rating", "service_quality_review_count"
+            ),
+            "classes": ("collapse",)
+        }),
+        ("Distribution", {
+            "fields": ("rating_distribution",),
+            "classes": ("collapse",)
+        }),
+        ("Timestamps", {
+            "fields": ("last_reviewed_at", "created_at", "updated_at"),
+            "classes": ("collapse",)
+        }),
+    )
+
+    def overall_rating_display(self, obj):
+        if obj.overall_rating > 0:
+            return f"{obj.overall_rating:.1f}⭐"
+        return "No ratings"
+    overall_rating_display.short_description = "Overall Rating"
+
+    def provider_rating_display(self, obj):
+        if obj.provider_rating > 0:
+            return f"{obj.provider_rating:.1f}⭐ ({obj.provider_review_count})"
+        return "No ratings"
+    provider_rating_display.short_description = "Provider Rating"
+
+    def receiver_rating_display(self, obj):
+        if obj.receiver_rating > 0:
+            return f"{obj.receiver_rating:.1f}⭐ ({obj.receiver_review_count})"
+        return "No ratings"
+    receiver_rating_display.short_description = "Receiver Rating"
+
+    def is_highly_rated_admin(self, obj):
+        return obj.is_highly_rated
+    is_highly_rated_admin.boolean = True
+    is_highly_rated_admin.short_description = "Highly Rated"
+
+    def rating_level_admin(self, obj):
+        return obj.rating_level
+    rating_level_admin.short_description = "Rating Level"
+
+    actions = ['recalculate_ratings', 'mark_as_verified_reviewer']
+
+    def recalculate_ratings(self, request, queryset):
+        """Recalculate ratings for selected users"""
+        count = 0
+        for user_rating in queryset:
+            user_rating.update_ratings()
+            count += 1
+        
+        self.message_user(
+            request,
+            f"Successfully recalculated ratings for {count} users."
+        )
+    recalculate_ratings.short_description = "Recalculate ratings for selected users"
+
+    def mark_as_verified_reviewer(self, request, queryset):
+        """Mark selected users as verified reviewers"""
+        count = queryset.filter(is_verified_reviewer=False).update(is_verified_reviewer=True)
+        
+        self.message_user(
+            request,
+            f"Successfully marked {count} users as verified reviewers."
+        )
+    mark_as_verified_reviewer.short_description = "Mark as verified reviewers"
