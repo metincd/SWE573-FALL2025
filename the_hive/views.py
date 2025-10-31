@@ -1,4 +1,5 @@
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
@@ -14,6 +15,9 @@ from .models import (
     Message,
     Thread,
     Post,
+    TimeAccount,
+    TimeTransaction,
+    Notification,
 )
 from .serializers import (
     ProfileSerializer,
@@ -26,6 +30,9 @@ from .serializers import (
     MessageSerializer,
     ThreadSerializer,
     PostSerializer,
+    TimeAccountSerializer,
+    TimeTransactionSerializer,
+    NotificationSerializer,
 )
 
 
@@ -326,3 +333,101 @@ class PostViewSet(viewsets.ModelViewSet):
             return Response({"detail": "Permission denied."}, status=403)
         post.unflag()
         return Response(PostSerializer(post).data)
+
+
+class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = TimeAccountSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        return TimeAccount.objects.filter(user=user)
+
+    def retrieve(self, request, *args, **kwargs):
+        user = request.user
+        time_account, _ = TimeAccount.objects.get_or_create(user=user)
+        serializer = self.get_serializer(time_account)
+        return Response(serializer.data)
+
+    def list(self, request, *args, **kwargs):
+        user = request.user
+        time_account, _ = TimeAccount.objects.get_or_create(user=user)
+        serializer = self.get_serializer(time_account)
+        return Response([serializer.data])
+
+
+class TimeTransactionViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = TimeTransactionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "amount"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = (
+            TimeTransaction.objects.select_related(
+                "account", "related_service", "related_session", "related_completion", "processed_by"
+            )
+            .filter(account__user=user)
+        )
+        transaction_type = self.request.query_params.get("type")
+        status = self.request.query_params.get("status")
+        if transaction_type:
+            qs = qs.filter(transaction_type=transaction_type)
+        if status:
+            qs = qs.filter(status=status)
+        return qs
+
+
+class NotificationViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "priority"]
+    ordering = ["-created_at"]
+    http_method_names = ["get", "delete", "post"]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = (
+            Notification.objects.select_related(
+                "related_service", "related_conversation", "related_thread"
+            )
+            .filter(user=user)
+        )
+        is_read = self.request.query_params.get("is_read")
+        notification_type = self.request.query_params.get("type")
+        priority = self.request.query_params.get("priority")
+        if is_read is not None:
+            qs = qs.filter(is_read=is_read.lower() == "true")
+        if notification_type:
+            qs = qs.filter(notification_type=notification_type)
+        if priority:
+            qs = qs.filter(priority=priority)
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.mark_as_read()
+        return Response(NotificationSerializer(notification).data)
+
+    @action(detail=True, methods=["post"])
+    def dismiss(self, request, pk=None):
+        notification = self.get_object()
+        notification.dismiss()
+        return Response(NotificationSerializer(notification).data)
+
+    @action(detail=False, methods=["post"])
+    def mark_all_read(self, request):
+        count = self.get_queryset().filter(is_read=False).update(
+            is_read=True, read_at=timezone.now()
+        )
+        return Response({"detail": f"{count} notifications marked as read"})
+
+    @action(detail=False, methods=["delete"])
+    def delete_expired(self, request):
+        expired_count = self.get_queryset().filter(expires_at__lt=timezone.now()).count()
+        self.get_queryset().filter(expires_at__lt=timezone.now()).delete()
+        return Response({"detail": f"{expired_count} expired notifications deleted"})

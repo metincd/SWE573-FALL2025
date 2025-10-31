@@ -10,6 +10,9 @@ from .views import (
     MessageViewSet,
     ThreadViewSet,
     PostViewSet,
+    TimeAccountViewSet,
+    TimeTransactionViewSet,
+    NotificationViewSet,
     MeView,
 )
 
@@ -23,6 +26,9 @@ router.register(r"conversations", ConversationViewSet, basename="conversation")
 router.register(r"messages", MessageViewSet, basename="message")
 router.register(r"threads", ThreadViewSet, basename="thread")
 router.register(r"posts", PostViewSet, basename="post")
+router.register(r"time-accounts", TimeAccountViewSet, basename="time-account")
+router.register(r"time-transactions", TimeTransactionViewSet, basename="time-transaction")
+router.register(r"notifications", NotificationViewSet, basename="notification")
 
 urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
