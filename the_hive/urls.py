@@ -6,6 +6,8 @@ from .views import (
     ServiceRequestViewSet,
     ServiceSessionViewSet,
     CompletionViewSet,
+    ConversationViewSet,
+    MessageViewSet,
     MeView,
 )
 
@@ -15,6 +17,8 @@ router.register(r"services", ServiceViewSet, basename="service")
 router.register(r"service-requests", ServiceRequestViewSet, basename="service-request")
 router.register(r"sessions", ServiceSessionViewSet, basename="service-session")
 router.register(r"completions", CompletionViewSet, basename="completion")
+router.register(r"conversations", ConversationViewSet, basename="conversation")
+router.register(r"messages", MessageViewSet, basename="message")
 
 urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
