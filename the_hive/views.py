@@ -12,6 +12,8 @@ from .models import (
     Completion,
     Conversation,
     Message,
+    Thread,
+    Post,
 )
 from .serializers import (
     ProfileSerializer,
@@ -22,6 +24,8 @@ from .serializers import (
     CompletionSerializer,
     ConversationSerializer,
     MessageSerializer,
+    ThreadSerializer,
+    PostSerializer,
 )
 
 
@@ -232,3 +236,93 @@ class MessageViewSet(viewsets.ModelViewSet):
             message.mark_as_read()
             return Response(MessageSerializer(message).data)
         return Response({"detail": "You are not a participant."}, status=403)
+
+
+class ThreadViewSet(viewsets.ModelViewSet):
+    serializer_class = ThreadSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["title"]
+
+    def get_queryset(self):
+        qs = (
+            Thread.objects.select_related("author", "related_service")
+            .prefetch_related("tags", "posts")
+            .all()
+        )
+        status = self.request.query_params.get("status")
+        is_flagged = self.request.query_params.get("flagged")
+        tag = self.request.query_params.get("tag")
+        service = self.request.query_params.get("service")
+        if status:
+            qs = qs.filter(status=status)
+        if is_flagged is not None:
+            qs = qs.filter(is_flagged=is_flagged.lower() == "true")
+        if tag:
+            qs = qs.filter(Q(tags__slug=tag) | Q(tags__name__iexact=tag))
+        if service:
+            qs = qs.filter(related_service_id=service)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.views_count += 1
+        instance.save(update_fields=["views_count"])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["post"])
+    def flag(self, request, pk=None):
+        thread = self.get_object()
+        reason = request.data.get("reason", "")
+        thread.flag(user=request.user, reason=reason)
+        return Response(ThreadSerializer(thread).data)
+
+    @action(detail=True, methods=["post"])
+    def unflag(self, request, pk=None):
+        thread = self.get_object()
+        if not request.user.is_staff:
+            return Response({"detail": "Permission denied."}, status=403)
+        thread.unflag()
+        return Response(ThreadSerializer(thread).data)
+
+
+class PostViewSet(viewsets.ModelViewSet):
+    serializer_class = PostSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["body"]
+
+    def get_queryset(self):
+        qs = Post.objects.select_related("author", "thread", "thread__author").all()
+        thread_id = self.request.query_params.get("thread")
+        is_flagged = self.request.query_params.get("flagged")
+        status = self.request.query_params.get("status")
+        if thread_id:
+            qs = qs.filter(thread_id=thread_id)
+        if is_flagged is not None:
+            qs = qs.filter(is_flagged=is_flagged.lower() == "true")
+        if status:
+            qs = qs.filter(status=status)
+        return qs.order_by("created_at")
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def flag(self, request, pk=None):
+        post = self.get_object()
+        reason = request.data.get("reason", "")
+        post.flag(user=request.user, reason=reason)
+        return Response(PostSerializer(post).data)
+
+    @action(detail=True, methods=["post"])
+    def unflag(self, request, pk=None):
+        post = self.get_object()
+        if not request.user.is_staff:
+            return Response({"detail": "Permission denied."}, status=403)
+        post.unflag()
+        return Response(PostSerializer(post).data)

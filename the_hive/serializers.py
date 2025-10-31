@@ -9,6 +9,8 @@ from .models import (
     Completion,
     Conversation,
     Message,
+    Thread,
+    Post,
 )
 
 
@@ -173,4 +175,61 @@ class ConversationSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.unread_count_for_user(request.user)
         return 0
+
+
+class PostSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Post
+        fields = [
+            "id",
+            "thread",
+            "author",
+            "body",
+            "status",
+            "is_flagged",
+            "is_recent",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "author", "is_recent", "created_at", "updated_at"]
+
+
+class ThreadSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+    tags = serializers.SlugRelatedField(
+        many=True, slug_field="slug", queryset=Tag.objects.all(), required=False
+    )
+    post_count = serializers.IntegerField(read_only=True)
+    last_post = PostSerializer(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Thread
+        fields = [
+            "id",
+            "title",
+            "author",
+            "status",
+            "is_flagged",
+            "related_service",
+            "tags",
+            "views_count",
+            "post_count",
+            "last_post",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "author",
+            "views_count",
+            "post_count",
+            "last_post",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
 
