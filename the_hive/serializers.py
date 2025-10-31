@@ -17,7 +17,11 @@ from .models import (
     ThankYouNote,
     Review,
     ReviewHelpfulVote,
+    UserRating,
+    Report,
+    ModerationAction,
 )
+from django.contrib.contenttypes.models import ContentType
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -462,4 +466,155 @@ class ReviewSerializer(serializers.ModelSerializer):
                 review=obj, user=request.user
             ).exists()
         return False
+
+
+class UserRatingSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    has_ratings = serializers.BooleanField(read_only=True)
+    rating_level = serializers.CharField(read_only=True)
+    is_highly_rated = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = UserRating
+        fields = [
+            "id",
+            "user",
+            "overall_rating",
+            "overall_review_count",
+            "provider_rating",
+            "provider_review_count",
+            "receiver_rating",
+            "receiver_review_count",
+            "service_quality_rating",
+            "service_quality_review_count",
+            "rating_distribution",
+            "has_ratings",
+            "rating_level",
+            "is_highly_rated",
+            "is_verified_reviewer",
+            "last_reviewed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "user",
+            "overall_rating",
+            "overall_review_count",
+            "provider_rating",
+            "provider_review_count",
+            "receiver_rating",
+            "receiver_review_count",
+            "service_quality_rating",
+            "service_quality_review_count",
+            "rating_distribution",
+            "has_ratings",
+            "rating_level",
+            "is_highly_rated",
+            "last_reviewed_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ReportSerializer(serializers.ModelSerializer):
+    reporter = UserSerializer(read_only=True)
+    is_pending = serializers.BooleanField(read_only=True)
+    reported_content_preview = serializers.CharField(read_only=True)
+    content_type_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Report
+        fields = [
+            "id",
+            "reporter",
+            "content_type",
+            "object_id",
+            "content_type_name",
+            "reason",
+            "description",
+            "status",
+            "reported_content_preview",
+            "is_pending",
+            "evidence_url",
+            "created_at",
+            "updated_at",
+            "resolved_at",
+        ]
+        read_only_fields = [
+            "id",
+            "reporter",
+            "reported_content_preview",
+            "is_pending",
+            "status",
+            "created_at",
+            "updated_at",
+            "resolved_at",
+        ]
+
+    def get_content_type_name(self, obj):
+        if obj.content_type:
+            return f"{obj.content_type.app_label}.{obj.content_type.model}"
+        return None
+
+    def validate(self, attrs):
+        # Content type validasyonu
+        content_type = attrs.get("content_type")
+        if content_type:
+            allowed_models = [
+                "service",
+                "servicerequest",
+                "thread",
+                "post",
+                "message",
+                "review",
+                "conversation",
+            ]
+            if content_type.model.lower() not in allowed_models:
+                raise serializers.ValidationError(
+                    {
+                        "content_type": f"Reports can only be submitted for: {', '.join(allowed_models)}"
+                    }
+                )
+        return attrs
+
+
+class ModerationActionSerializer(serializers.ModelSerializer):
+    moderator = UserSerializer(read_only=True)
+    affected_user = UserSerializer(read_only=True)
+    reversed_by = UserSerializer(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ModerationAction
+        fields = [
+            "id",
+            "report",
+            "moderator",
+            "affected_user",
+            "action",
+            "severity",
+            "notes",
+            "duration_days",
+            "expires_at",
+            "is_reversed",
+            "reversed_by",
+            "reversed_at",
+            "reversal_reason",
+            "is_active",
+            "is_expired",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "moderator",
+            "is_active",
+            "is_expired",
+            "reversed_by",
+            "reversed_at",
+            "created_at",
+            "updated_at",
+        ]
 

@@ -15,6 +15,9 @@ from .views import (
     NotificationViewSet,
     ThankYouNoteViewSet,
     ReviewViewSet,
+    UserRatingViewSet,
+    ReportViewSet,
+    ModerationActionViewSet,
     MeView,
 )
 
@@ -33,6 +36,9 @@ router.register(r"time-transactions", TimeTransactionViewSet, basename="time-tra
 router.register(r"notifications", NotificationViewSet, basename="notification")
 router.register(r"thank-you-notes", ThankYouNoteViewSet, basename="thank-you-note")
 router.register(r"reviews", ReviewViewSet, basename="review")
+router.register(r"user-ratings", UserRatingViewSet, basename="user-rating")
+router.register(r"reports", ReportViewSet, basename="report")
+router.register(r"moderation-actions", ModerationActionViewSet, basename="moderation-action")
 
 urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
