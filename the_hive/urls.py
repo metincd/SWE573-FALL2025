@@ -19,6 +19,7 @@ from .views import (
     ReportViewSet,
     ModerationActionViewSet,
     MeView,
+    health_check,
 )
 
 router = DefaultRouter()
@@ -41,6 +42,7 @@ router.register(r"reports", ReportViewSet, basename="report")
 router.register(r"moderation-actions", ModerationActionViewSet, basename="moderation-action")
 
 urlpatterns = [
+    path("health/", health_check, name="health-check"),
     path("me/", MeView.as_view(), name="me"),
     path("", include(router.urls)),
 ]

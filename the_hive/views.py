@@ -1,9 +1,10 @@
 from django.db.models import Q
 from django.utils import timezone
-from rest_framework import viewsets, permissions, filters, generics
+from django.db import connection
+from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view
 
 from .models import (
     Profile,
@@ -49,6 +50,34 @@ from .serializers import (
 from django.contrib.contenttypes.models import ContentType
 
 
+@api_view(["GET"])
+def health_check(request):
+    """Health check endpoint for monitoring"""
+    try:
+        # Database connectivity check
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        
+        return Response(
+            {
+                "status": "healthy",
+                "database": "connected",
+                "timestamp": timezone.now().isoformat(),
+            },
+            status=status.HTTP_200_OK,
+        )
+    except Exception as e:
+        return Response(
+            {
+                "status": "unhealthy",
+                "database": "disconnected",
+                "error": str(e),
+                "timestamp": timezone.now().isoformat(),
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+
 class IsOwnerOrReadOnly(permissions.BasePermission):
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
@@ -92,12 +121,45 @@ class ServiceViewSet(viewsets.ModelViewSet):
         service_type = self.request.query_params.get("type")
         status = self.request.query_params.get("status")
         tag = self.request.query_params.get("tag")
+        
+        # Geo filtering (lat/lng/radius_km)
+        lat = self.request.query_params.get("lat")
+        lng = self.request.query_params.get("lng")
+        radius_km = self.request.query_params.get("radius_km")
+        
         if service_type:
             qs = qs.filter(service_type=service_type)
         if status:
             qs = qs.filter(status=status)
         if tag:
             qs = qs.filter(Q(tags__slug=tag) | Q(tags__name__iexact=tag))
+        
+        # Geo filter: basit bounding box yaklaşımı
+        if lat and lng and radius_km:
+            try:
+                center_lat = float(lat)
+                center_lng = float(lng)
+                radius = float(radius_km)
+                
+                # Basit yaklaşım: 1 derece ≈ 111 km
+                lat_delta = radius / 111.0
+                lng_delta = radius / (111.0 * abs(center_lat / 90.0) + 0.001)  # Latitude'e göre adjust
+                
+                min_lat = center_lat - lat_delta
+                max_lat = center_lat + lat_delta
+                min_lng = center_lng - lng_delta
+                max_lng = center_lng + lng_delta
+                
+                qs = qs.filter(
+                    latitude__gte=min_lat,
+                    latitude__lte=max_lat,
+                    longitude__gte=min_lng,
+                    longitude__lte=max_lng,
+                )
+            except (ValueError, TypeError):
+                # Geçersiz değerler, geo filter uygulanmaz
+                pass
+        
         return qs
 
     def perform_create(self, serializer):
@@ -131,7 +193,10 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         if new_status in {"accepted", "rejected", "completed"} and sr.service.owner != user:
             return Response({"detail": "Bu işlemi sadece servis sahibi yapabilir."}, status=403)
         sr.status = new_status
-        sr.save(update_fields=["status", "updated_at"])
+        # Service owner yanıt verdiğinde responded_at'i güncelle
+        if new_status in {"accepted", "rejected"} and sr.service.owner == user:
+            sr.responded_at = timezone.now()
+        sr.save(update_fields=["status", "responded_at", "updated_at"])
         return Response(ServiceRequestSerializer(sr).data)
 
 
@@ -163,6 +228,14 @@ class ServiceSessionViewSet(viewsets.ModelViewSet):
             .order_by("-scheduled_start")
         )
 
+    def perform_create(self, serializer):
+        service_request = serializer.validated_data["service_request"]
+        user = self.request.user
+        # Sadece requester veya service owner session oluşturabilir
+        if service_request.requester != user and service_request.service.owner != user:
+            raise PermissionDenied("Only the requester or service owner can create sessions.")
+        serializer.save()
+
 
 class CompletionViewSet(viewsets.ModelViewSet):
     serializer_class = CompletionSerializer
@@ -186,7 +259,17 @@ class CompletionViewSet(viewsets.ModelViewSet):
         )
 
     def perform_create(self, serializer):
-        serializer.save(marked_by=self.request.user)
+        session = serializer.validated_data["session"]
+        user = self.request.user
+        # Sadece requester veya service owner completion oluşturabilir
+        if (
+            session.service_request.requester != user
+            and session.service_request.service.owner != user
+        ):
+            raise PermissionDenied(
+                "Only the requester or service owner can create completions."
+            )
+        serializer.save(marked_by=user)
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -431,6 +514,12 @@ class NotificationViewSet(viewsets.ModelViewSet):
         if priority:
             qs = qs.filter(priority=priority)
         return qs
+
+    def create(self, request, *args, **kwargs):
+        return Response(
+            {"detail": "Notifications cannot be created via API. They are system-generated."},
+            status=405
+        )
 
     @action(detail=True, methods=["post"])
     def mark_read(self, request, pk=None):
