@@ -11,6 +11,9 @@ from .models import (
     Message,
     Thread,
     Post,
+    TimeAccount,
+    TimeTransaction,
+    Notification,
 )
 
 
@@ -232,4 +235,120 @@ class ThreadSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class TimeAccountSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+    is_positive_balance = serializers.BooleanField(read_only=True)
+    participation_ratio = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = TimeAccount
+        fields = [
+            "id",
+            "user",
+            "balance",
+            "total_earned",
+            "total_spent",
+            "is_positive_balance",
+            "participation_ratio",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "user",
+            "balance",
+            "total_earned",
+            "total_spent",
+            "is_positive_balance",
+            "participation_ratio",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class TimeTransactionSerializer(serializers.ModelSerializer):
+    signed_amount = serializers.FloatField(read_only=True)
+
+    class Meta:
+        model = TimeTransaction
+        fields = [
+            "id",
+            "account",
+            "transaction_type",
+            "amount",
+            "signed_amount",
+            "status",
+            "description",
+            "related_service",
+            "related_session",
+            "related_completion",
+            "processed_by",
+            "processed_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "account",
+            "signed_amount",
+            "processed_by",
+            "processed_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    is_unread = serializers.BooleanField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    is_expired = serializers.BooleanField(read_only=True)
+    is_urgent = serializers.BooleanField(read_only=True)
+    action_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Notification
+        fields = [
+            "id",
+            "user",
+            "notification_type",
+            "title",
+            "message",
+            "priority",
+            "payload",
+            "related_service",
+            "related_conversation",
+            "related_thread",
+            "is_read",
+            "read_at",
+            "is_dismissed",
+            "dismissed_at",
+            "is_unread",
+            "is_active",
+            "is_expired",
+            "is_urgent",
+            "action_url",
+            "expires_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "user",
+            "is_read",
+            "read_at",
+            "is_dismissed",
+            "dismissed_at",
+            "is_unread",
+            "is_active",
+            "is_expired",
+            "is_urgent",
+            "action_url",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_action_url(self, obj):
+        return obj.get_action_url()
 
