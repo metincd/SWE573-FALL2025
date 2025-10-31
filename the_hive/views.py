@@ -22,6 +22,9 @@ from .models import (
     ThankYouNote,
     Review,
     ReviewHelpfulVote,
+    UserRating,
+    Report,
+    ModerationAction,
 )
 from .serializers import (
     ProfileSerializer,
@@ -39,7 +42,11 @@ from .serializers import (
     NotificationSerializer,
     ThankYouNoteSerializer,
     ReviewSerializer,
+    UserRatingSerializer,
+    ReportSerializer,
+    ModerationActionSerializer,
 )
+from django.contrib.contenttypes.models import ContentType
 
 
 class IsOwnerOrReadOnly(permissions.BasePermission):
@@ -48,6 +55,18 @@ class IsOwnerOrReadOnly(permissions.BasePermission):
             return True
         owner = getattr(obj, "owner", None)
         return owner == request.user
+
+
+class IsModeratorOrReadOnly(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return request.user.is_authenticated
+        return request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser)
+
+    def has_object_permission(self, request, view, obj):
+        if request.method in permissions.SAFE_METHODS:
+            return request.user.is_authenticated
+        return request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser)
 
 
 class TagViewSet(viewsets.ModelViewSet):
@@ -116,7 +135,7 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         return Response(ServiceRequestSerializer(sr).data)
 
 
-class MeView(generics.RetrieveAPIView):
+class MeView(generics.RetrieveUpdateAPIView):
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -574,3 +593,133 @@ class ReviewViewSet(viewsets.ModelViewSet):
         if removed:
             return Response({"detail": "Helpful mark removed"})
         return Response({"detail": "Review was not marked as helpful"})
+
+
+class UserRatingViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = UserRatingSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["overall_rating", "overall_review_count"]
+    ordering = ["-overall_rating"]
+
+    def get_queryset(self):
+        qs = UserRating.objects.select_related("user").all()
+        user_id = self.request.query_params.get("user")
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        return qs
+
+
+class ReportViewSet(viewsets.ModelViewSet):
+    serializer_class = ReportSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "status"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            # Moderator/admin tüm report'ları görebilir
+            qs = Report.objects.select_related("reporter", "content_type").all()
+        else:
+            # Normal kullanıcı sadece kendi report'larını görebilir
+            qs = Report.objects.select_related("reporter", "content_type").filter(reporter=user)
+        
+        status = self.request.query_params.get("status")
+        reason = self.request.query_params.get("reason")
+        if status:
+            qs = qs.filter(status=status)
+        if reason:
+            qs = qs.filter(reason=reason)
+        return qs
+
+    def perform_create(self, serializer):
+        # Reporter'ı otomatik ata ve reporter_ip'yi kaydet
+        serializer.save(
+            reporter=self.request.user,
+            reporter_ip=self.get_client_ip()
+        )
+
+    def get_client_ip(self):
+        x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = self.request.META.get('REMOTE_ADDR')
+        return ip
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["is_moderator"] = (
+            self.request.user.is_staff or self.request.user.is_superuser
+        )
+        return context
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Sadece moderator/admin report'u güncelleyebilir
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only moderators can update reports."}, status=403)
+        # Status'u manuel olarak güncelle
+        status = request.data.get("status")
+        if status:
+            instance.status = status
+            if status in ["resolved", "dismissed"] and not instance.resolved_at:
+                instance.resolved_at = timezone.now()
+            instance.save()
+        return super().update(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        report = self.get_object()
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only moderators can resolve reports."}, status=403)
+        report.resolve(resolved_by=request.user)
+        return Response(ReportSerializer(report).data)
+
+    @action(detail=True, methods=["post"])
+    def dismiss(self, request, pk=None):
+        report = self.get_object()
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only moderators can dismiss reports."}, status=403)
+        report.dismiss(dismissed_by=request.user)
+        return Response(ReportSerializer(report).data)
+
+
+class ModerationActionViewSet(viewsets.ModelViewSet):
+    serializer_class = ModerationActionSerializer
+    permission_classes = [IsModeratorOrReadOnly]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at", "severity"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        qs = (
+            ModerationAction.objects.select_related(
+                "moderator", "affected_user", "report"
+            ).all()
+        )
+        action_type = self.request.query_params.get("action")
+        severity = self.request.query_params.get("severity")
+        affected_user = self.request.query_params.get("affected_user")
+        is_reversed = self.request.query_params.get("is_reversed")
+        if action_type:
+            qs = qs.filter(action=action_type)
+        if severity:
+            qs = qs.filter(severity=severity)
+        if affected_user:
+            qs = qs.filter(affected_user_id=affected_user)
+        if is_reversed is not None:
+            qs = qs.filter(is_reversed=is_reversed.lower() == "true")
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(moderator=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def reverse(self, request, pk=None):
+        action_obj = self.get_object()
+        reason = request.data.get("reason", "")
+        action_obj.reverse(reversed_by=request.user, reason=reason)
+        return Response(ModerationActionSerializer(action_obj).data)
