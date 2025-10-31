@@ -1,6 +1,7 @@
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, permissions, filters, generics
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.decorators import action
 
@@ -18,6 +19,9 @@ from .models import (
     TimeAccount,
     TimeTransaction,
     Notification,
+    ThankYouNote,
+    Review,
+    ReviewHelpfulVote,
 )
 from .serializers import (
     ProfileSerializer,
@@ -33,6 +37,8 @@ from .serializers import (
     TimeAccountSerializer,
     TimeTransactionSerializer,
     NotificationSerializer,
+    ThankYouNoteSerializer,
+    ReviewSerializer,
 )
 
 
@@ -431,3 +437,140 @@ class NotificationViewSet(viewsets.ModelViewSet):
         expired_count = self.get_queryset().filter(expires_at__lt=timezone.now()).count()
         self.get_queryset().filter(expires_at__lt=timezone.now()).delete()
         return Response({"detail": f"{expired_count} expired notifications deleted"})
+
+
+class ThankYouNoteViewSet(viewsets.ModelViewSet):
+    serializer_class = ThankYouNoteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering_fields = ["created_at"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = (
+            ThankYouNote.objects.select_related("from_user", "to_user", "related_service", "related_session")
+            .filter(Q(from_user=user) | Q(to_user=user))
+        )
+        received = self.request.query_params.get("received")
+        if received is not None:
+            if received.lower() == "true":
+                qs = qs.filter(to_user=user)
+            else:
+                qs = qs.filter(from_user=user)
+        status = self.request.query_params.get("status")
+        if status:
+            qs = qs.filter(status=status)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(from_user=self.request.user)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Sadece gönderen kendi notunu güncelleyebilir
+        if instance.from_user != request.user:
+            return Response({"detail": "You can only edit notes you sent."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Sadece gönderen veya alan notu silebilir
+        if instance.from_user != request.user and instance.to_user != request.user:
+            return Response({"detail": "You can only delete notes you sent or received."}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def mark_read(self, request, pk=None):
+        note = self.get_object()
+        if note.to_user != request.user:
+            return Response({"detail": "You can only mark notes you received as read."}, status=403)
+        note.mark_as_read()
+        return Response(ThankYouNoteSerializer(note).data)
+
+
+class ReviewViewSet(viewsets.ModelViewSet):
+    serializer_class = ReviewSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["title", "content"]
+    ordering_fields = ["created_at", "rating", "helpful_count"]
+    ordering = ["-created_at"]
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+
+    def get_queryset(self):
+        user = self.request.user
+        show_all = self.request.query_params.get("show_all", "false").lower() == "true"
+        
+        if show_all and user.is_authenticated:
+            # Kullanıcı kendi review'larını görmek isterse published olmasa bile göster
+            qs = Review.objects.select_related(
+                "reviewer", "reviewee", "related_service", "related_session", "related_completion"
+            ).filter(reviewer=user)
+        else:
+            # Varsayılan: sadece published review'lar
+            qs = Review.objects.select_related(
+                "reviewer", "reviewee", "related_service", "related_session", "related_completion"
+            ).filter(is_published=True)
+        
+        reviewer = self.request.query_params.get("reviewer")
+        reviewee = self.request.query_params.get("reviewee")
+        review_type = self.request.query_params.get("review_type")
+        rating = self.request.query_params.get("rating")
+        related_service = self.request.query_params.get("service")
+        
+        if reviewer:
+            qs = qs.filter(reviewer_id=reviewer)
+        if reviewee:
+            qs = qs.filter(reviewee_id=reviewee)
+        if review_type:
+            qs = qs.filter(review_type=review_type)
+        if rating:
+            qs = qs.filter(rating=rating)
+        if related_service:
+            qs = qs.filter(related_service_id=related_service)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(reviewer=self.request.user)
+
+    def get_object(self):
+        obj = super().get_object()
+        # Kullanıcı kendi review'ını veya published bir review'ı görebilir
+        if not obj.is_published and obj.reviewer != self.request.user:
+            raise PermissionDenied("You can only view published reviews or your own reviews.")
+        return obj
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Sadece reviewer kendi review'ını güncelleyebilir
+        if instance.reviewer != request.user:
+            return Response({"detail": "You can only edit your own reviews."}, status=403)
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # Sadece reviewer kendi review'ını silebilir
+        if instance.reviewer != request.user:
+            return Response({"detail": "You can only delete your own reviews."}, status=403)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=["post"])
+    def helpful(self, request, pk=None):
+        review = self.get_object()
+        created = review.mark_helpful(request.user)
+        if created:
+            return Response({"detail": "Review marked as helpful"}, status=201)
+        return Response({"detail": "Review already marked as helpful"})
+
+    @action(detail=True, methods=["post"])
+    def unhelpful(self, request, pk=None):
+        review = self.get_object()
+        removed = review.unmark_helpful(request.user)
+        if removed:
+            return Response({"detail": "Helpful mark removed"})
+        return Response({"detail": "Review was not marked as helpful"})
