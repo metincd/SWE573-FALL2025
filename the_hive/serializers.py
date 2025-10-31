@@ -1,5 +1,15 @@
 from rest_framework import serializers
-from .models import User, Profile, Tag, Service, ServiceRequest, ServiceSession, Completion
+from .models import (
+    User,
+    Profile,
+    Tag,
+    Service,
+    ServiceRequest,
+    ServiceSession,
+    Completion,
+    Conversation,
+    Message,
+)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -118,4 +128,49 @@ class CompletionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "marked_by", "created_at", "updated_at"]
 
+
+class MessageSerializer(serializers.ModelSerializer):
+    sender = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Message
+        fields = [
+            "id",
+            "conversation",
+            "sender",
+            "body",
+            "is_read",
+            "read_at",
+            "is_recent",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "sender", "is_read", "read_at", "is_recent", "created_at", "updated_at"]
+
+
+class ConversationSerializer(serializers.ModelSerializer):
+    participants = UserSerializer(many=True, read_only=True)
+    last_message = MessageSerializer(read_only=True)
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Conversation
+        fields = [
+            "id",
+            "participants",
+            "related_service",
+            "title",
+            "is_archived",
+            "last_message",
+            "unread_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "last_message", "unread_count", "created_at", "updated_at"]
+
+    def get_unread_count(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return obj.unread_count_for_user(request.user)
+        return 0
 

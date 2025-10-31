@@ -3,7 +3,16 @@ from rest_framework import viewsets, permissions, filters, generics
 from rest_framework.response import Response
 from rest_framework.decorators import action
 
-from .models import Profile, Tag, Service, ServiceRequest, ServiceSession, Completion
+from .models import (
+    Profile,
+    Tag,
+    Service,
+    ServiceRequest,
+    ServiceSession,
+    Completion,
+    Conversation,
+    Message,
+)
 from .serializers import (
     ProfileSerializer,
     TagSerializer,
@@ -11,6 +20,8 @@ from .serializers import (
     ServiceRequestSerializer,
     ServiceSessionSerializer,
     CompletionSerializer,
+    ConversationSerializer,
+    MessageSerializer,
 )
 
 
@@ -140,3 +151,84 @@ class CompletionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(marked_by=self.request.user)
+
+
+class ConversationViewSet(viewsets.ModelViewSet):
+    serializer_class = ConversationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        qs = (
+            Conversation.objects.prefetch_related("participants", "messages")
+            .prefetch_related("related_service")
+            .filter(participants=user)
+            .order_by("-updated_at")
+        )
+        is_archived = self.request.query_params.get("archived")
+        if is_archived is not None:
+            qs = qs.filter(is_archived=is_archived.lower() == "true")
+        return qs
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
+
+    def perform_create(self, serializer):
+        conversation = serializer.save()
+        if self.request.user not in conversation.participants.all():
+            conversation.participants.add(self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def archive(self, request, pk=None):
+        conv = self.get_object()
+        conv.is_archived = True
+        conv.save()
+        return Response(ConversationSerializer(conv, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def unarchive(self, request, pk=None):
+        conv = self.get_object()
+        conv.is_archived = False
+        conv.save()
+        return Response(ConversationSerializer(conv, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def mark_read(self, request, pk=None):
+        conv = self.get_object()
+        conv.mark_as_read_for_user(request.user)
+        return Response({"detail": "Conversation marked as read"})
+
+
+class MessageViewSet(viewsets.ModelViewSet):
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        conversation_id = self.request.query_params.get("conversation")
+        qs = (
+            Message.objects.select_related("sender", "conversation")
+            .filter(conversation__participants=user)
+            .order_by("-created_at")
+        )
+        if conversation_id:
+            qs = qs.filter(conversation_id=conversation_id)
+        return qs
+
+    def perform_create(self, serializer):
+        conversation = serializer.validated_data["conversation"]
+        if self.request.user not in conversation.participants.all():
+            return Response(
+                {"detail": "You are not a participant in this conversation."}, status=403
+            )
+        serializer.save(sender=self.request.user)
+
+    @action(detail=True, methods=["post"])
+    def mark_read(self, request, pk=None):
+        message = self.get_object()
+        if message.conversation.participants.filter(id=request.user.id).exists():
+            message.mark_as_read()
+            return Response(MessageSerializer(message).data)
+        return Response({"detail": "You are not a participant."}, status=403)
