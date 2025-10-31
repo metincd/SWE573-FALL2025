@@ -162,6 +162,13 @@ class MessageSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     participants = UserSerializer(many=True, read_only=True)
+    participant_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=User.objects.all(),
+        source="participants",
+        write_only=True,
+        required=False,
+    )
     last_message = MessageSerializer(read_only=True)
     unread_count = serializers.SerializerMethodField()
 
@@ -170,6 +177,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "participants",
+            "participant_ids",
             "related_service",
             "title",
             "is_archived",
@@ -178,7 +186,7 @@ class ConversationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "last_message", "unread_count", "created_at", "updated_at"]
+        read_only_fields = ["id", "participants", "last_message", "unread_count", "created_at", "updated_at"]
 
     def get_unread_count(self, obj):
         request = self.context.get("request")
@@ -363,6 +371,12 @@ class NotificationSerializer(serializers.ModelSerializer):
 class ThankYouNoteSerializer(serializers.ModelSerializer):
     from_user = UserSerializer(read_only=True)
     to_user = UserSerializer(read_only=True)
+    to_user_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source="to_user",
+        write_only=True,
+        required=True,
+    )
     is_unread = serializers.BooleanField(read_only=True)
     message_preview = serializers.CharField(read_only=True)
 
@@ -372,6 +386,7 @@ class ThankYouNoteSerializer(serializers.ModelSerializer):
             "id",
             "from_user",
             "to_user",
+            "to_user_id",
             "message",
             "message_preview",
             "status",
@@ -407,6 +422,12 @@ class ReviewHelpfulVoteSerializer(serializers.ModelSerializer):
 class ReviewSerializer(serializers.ModelSerializer):
     reviewer = UserSerializer(read_only=True)
     reviewee = UserSerializer(read_only=True)
+    reviewee_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(),
+        source="reviewee",
+        write_only=True,
+        required=True,
+    )
     rating_display = serializers.CharField(read_only=True)
     is_recent = serializers.BooleanField(read_only=True)
     is_positive = serializers.BooleanField(read_only=True)
@@ -419,6 +440,7 @@ class ReviewSerializer(serializers.ModelSerializer):
             "id",
             "reviewer",
             "reviewee",
+            "reviewee_id",
             "review_type",
             "related_service",
             "related_session",
@@ -444,6 +466,7 @@ class ReviewSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "reviewer",
+            "reviewee",
             "helpful_count",
             "rating_display",
             "is_recent",
