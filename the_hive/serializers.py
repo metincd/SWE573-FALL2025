@@ -14,6 +14,9 @@ from .models import (
     TimeAccount,
     TimeTransaction,
     Notification,
+    ThankYouNote,
+    Review,
+    ReviewHelpfulVote,
 )
 
 
@@ -351,4 +354,112 @@ class NotificationSerializer(serializers.ModelSerializer):
 
     def get_action_url(self, obj):
         return obj.get_action_url()
+
+
+class ThankYouNoteSerializer(serializers.ModelSerializer):
+    from_user = UserSerializer(read_only=True)
+    to_user = UserSerializer(read_only=True)
+    is_unread = serializers.BooleanField(read_only=True)
+    message_preview = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ThankYouNote
+        fields = [
+            "id",
+            "from_user",
+            "to_user",
+            "message",
+            "message_preview",
+            "status",
+            "related_service",
+            "related_session",
+            "is_unread",
+            "read_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "from_user",
+            "to_user",
+            "message_preview",
+            "status",
+            "is_unread",
+            "read_at",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class ReviewHelpfulVoteSerializer(serializers.ModelSerializer):
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = ReviewHelpfulVote
+        fields = ["id", "review", "user", "created_at"]
+        read_only_fields = ["id", "user", "created_at"]
+
+
+class ReviewSerializer(serializers.ModelSerializer):
+    reviewer = UserSerializer(read_only=True)
+    reviewee = UserSerializer(read_only=True)
+    rating_display = serializers.CharField(read_only=True)
+    is_recent = serializers.BooleanField(read_only=True)
+    is_positive = serializers.BooleanField(read_only=True)
+    is_negative = serializers.BooleanField(read_only=True)
+    has_user_voted_helpful = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Review
+        fields = [
+            "id",
+            "reviewer",
+            "reviewee",
+            "review_type",
+            "related_service",
+            "related_session",
+            "related_completion",
+            "rating",
+            "rating_display",
+            "title",
+            "content",
+            "is_anonymous",
+            "is_verified",
+            "is_featured",
+            "helpful_count",
+            "is_published",
+            "is_flagged",
+            "is_recent",
+            "is_positive",
+            "is_negative",
+            "has_user_voted_helpful",
+            "created_at",
+            "updated_at",
+            "published_at",
+        ]
+        read_only_fields = [
+            "id",
+            "reviewer",
+            "helpful_count",
+            "rating_display",
+            "is_recent",
+            "is_positive",
+            "is_negative",
+            "has_user_voted_helpful",
+            "is_verified",
+            "is_featured",
+            "is_published",
+            "is_flagged",
+            "created_at",
+            "updated_at",
+            "published_at",
+        ]
+
+    def get_has_user_voted_helpful(self, obj):
+        request = self.context.get("request")
+        if request and request.user.is_authenticated:
+            return ReviewHelpfulVote.objects.filter(
+                review=obj, user=request.user
+            ).exists()
+        return False
 
