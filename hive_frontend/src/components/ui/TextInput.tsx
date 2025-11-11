@@ -8,6 +8,7 @@ interface TextInputProps {
   rightSlot?: React.ReactNode
   name?: string
   className?: string
+  required?: boolean
 }
 
 export default function TextInput({
@@ -20,6 +21,7 @@ export default function TextInput({
   rightSlot,
   name,
   className = "",
+  required = false,
 }: TextInputProps) {
   return (
     <label className={`block ${className}`}>
@@ -32,6 +34,7 @@ export default function TextInput({
           onChange={onChange}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          required={required}
           className="w-full rounded-2xl border border-gray-300 bg-white/90 backdrop-blur px-4 py-3 pr-12 outline-none ring-0 focus:border-gray-400 focus:outline-none"
         />
         {rightSlot && (

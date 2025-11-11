@@ -1,0 +1,16 @@
+# Production docker-compose override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
+# Note: For production, you need to install gunicorn: pip install gunicorn
+
+services:
+  backend:
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY}
+    command: sh -c "python manage.py collectstatic --noinput && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+
+  frontend:
+    build:
+      args:
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000/api}
+
