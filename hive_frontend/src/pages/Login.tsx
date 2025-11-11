@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Login() {
@@ -9,6 +9,15 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    // Show success message from registration if available
+    if (location.state?.message) {
+      setError('') // Clear any existing error
+      // You could show a success message here instead
+    }
+  }, [location])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -41,11 +50,12 @@ export default function Login() {
 
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-                Username
+                Email
               </label>
               <input
                 id="username"
-                type="text"
+                name="username"
+                type="email"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
@@ -75,6 +85,13 @@ export default function Login() {
               {loading ? 'Logging in...' : 'Login'}
             </button>
           </form>
+
+          <p className="mt-6 text-center text-sm text-gray-600">
+            Don't have an account?{' '}
+            <Link to="/register" className="text-gray-900 font-medium hover:underline">
+              Sign Up
+            </Link>
+          </p>
         </div>
       </div>
     </div>
