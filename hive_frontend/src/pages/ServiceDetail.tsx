@@ -2,7 +2,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../lib/api'
-import Card from '../components/ui/Card'
 import { useState } from 'react'
 import TextInput from '../components/ui/TextInput'
 

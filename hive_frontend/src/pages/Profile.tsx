@@ -1,10 +1,10 @@
+import React, { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { api } from '../lib/api'
 import Card from '../components/ui/Card'
 import TextInput from '../components/ui/TextInput'
-import { useState } from 'react'
 
 export default function Profile() {
   const navigate = useNavigate()
@@ -24,13 +24,17 @@ export default function Profile() {
       return response.data
     },
     enabled: isAuthenticated,
-    onSuccess: (data) => {
-      setEditData({
-        display_name: data.display_name || '',
-        bio: data.bio || '',
-      })
-    },
   })
+
+  // Update editData when profileData changes
+  React.useEffect(() => {
+    if (profileData) {
+      setEditData({
+        display_name: profileData.display_name || '',
+        bio: profileData.bio || '',
+      })
+    }
+  }, [profileData])
 
   // Fetch time account
   const { data: timeAccountData } = useQuery({
@@ -98,8 +102,8 @@ export default function Profile() {
     )
   }
 
-  const profile = profileData || {}
-  const timeAccount = timeAccountData || {}
+  const profile = (profileData as any) || {}
+  const timeAccount = (timeAccountData as any) || {}
   const myServices = myServicesData || []
   const requests = requestsData?.results || []
 
