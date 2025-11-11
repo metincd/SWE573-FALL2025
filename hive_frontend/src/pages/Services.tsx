@@ -52,7 +52,7 @@ export default function Services() {
               key={service.id}
               title={service.title}
               subtitle={`${service.owner?.full_name || service.owner?.username || 'User'} • ${
-                service.service_type === 'OFFER' ? 'Offering' : 'Seeking'
+                (service.service_type === 'offer' || service.service_type === 'OFFER') ? 'Offering' : 'Seeking'
               }`}
               desc={service.description}
               hours={service.estimated_hours}

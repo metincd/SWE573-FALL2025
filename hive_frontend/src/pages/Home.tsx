@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -37,7 +37,7 @@ export default function Home() {
   })
 
   // Fetch time account (only for authenticated users)
-  const { data: timeAccountData } = useQuery({
+  const { data: timeAccountData, refetch: refetchTimeAccount } = useQuery({
     queryKey: ['time-account'],
     queryFn: async () => {
       const response = await api.get('/time-accounts/')
@@ -46,13 +46,24 @@ export default function Home() {
     enabled: isAuthenticated,
   })
 
+  // Refetch time account when window gains focus (user might have completed a service in another tab)
+  useEffect(() => {
+    const handleFocus = () => {
+      if (isAuthenticated) {
+        refetchTimeAccount()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [isAuthenticated, refetchTimeAccount])
+
   // Separate services into offers and needs
   const { offers, needs } = useMemo(() => {
     if (!servicesData?.results) return { offers: [], needs: [] }
 
     const allServices = servicesData.results
-    const offersList = allServices.filter((s: any) => s.service_type === 'OFFER')
-    const needsList = allServices.filter((s: any) => s.service_type === 'NEED')
+    const offersList = allServices.filter((s: any) => s.service_type === 'offer' || s.service_type === 'OFFER')
+    const needsList = allServices.filter((s: any) => s.service_type === 'need' || s.service_type === 'NEED')
 
     return { offers: offersList, needs: needsList }
   }, [servicesData])
@@ -171,14 +182,14 @@ export default function Home() {
                 key={item.id}
                 title={item.title}
                 subtitle={`${item.owner?.full_name || item.owner?.username || 'User'} • ${
-                  item.service_type === 'OFFER' ? 'Offering' : 'Seeking'
+                  (item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Offering' : 'Seeking'
                 }`}
                 desc={item.description}
                 hours={item.estimated_hours}
                 tags={(item.tags || []).map((t: any) =>
                   typeof t === 'string' ? t : t.slug || t.name || ''
                 )}
-                cta={item.service_type === 'OFFER' ? 'Request' : 'Help'}
+                cta={(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Request' : 'Help'}
                 onClick={() => navigate(`/services/${item.id}`)}
               />
             ))
