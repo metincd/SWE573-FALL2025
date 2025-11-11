@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { api } from '../lib/api'
+import TextInput from '../components/ui/TextInput'
+import PasswordInput from '../components/ui/PasswordInput'
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -26,14 +28,18 @@ export default function Register() {
     setError('')
     setLoading(true)
 
+    if (formData.password !== formData.password2) {
+      setError('Passwords do not match')
+      setLoading(false)
+      return
+    }
+
     try {
       await api.post('/register/', formData)
-      // Registration successful, redirect to login
       navigate('/login', { state: { message: 'Registration successful! Please login.' } })
     } catch (err: any) {
       const errorMessage = err.response?.data
       if (typeof errorMessage === 'object') {
-        // Handle Django validation errors
         const errors = Object.values(errorMessage).flat()
         setError(errors.join(', '))
       } else {
@@ -45,116 +51,73 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <div className="w-full max-w-md">
-        <div className="rounded-2xl border bg-white shadow-sm p-8">
-          <h1 className="text-2xl font-semibold mb-2">Create Account</h1>
-          <p className="text-gray-600 mb-6">Sign up for The Hive</p>
+    <div className="max-w-md mx-auto w-full">
+      <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm">
+        <h2 className="text-xl font-bold">Sign Up</h2>
+        <p className="text-sm text-gray-600 mt-1">Fair exchange with TimeBank.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
-                {error}
-              </div>
-            )}
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <TextInput
+              label="First Name"
+              name="first_name"
+              value={formData.first_name}
+              onChange={handleChange}
+              placeholder="First Name"
+            />
+            <TextInput
+              label="Last Name"
+              name="last_name"
+              value={formData.last_name}
+              onChange={handleChange}
+              placeholder="Last Name"
+            />
+          </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="first_name" className="block text-sm font-medium text-gray-700 mb-1">
-                  First Name
-                </label>
-                <input
-                  id="first_name"
-                  name="first_name"
-                  type="text"
-                  value={formData.first_name}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-                />
-              </div>
+          <TextInput
+            label="Email"
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            placeholder="example@email.com"
+            autoComplete="email"
+          />
 
-              <div>
-                <label htmlFor="last_name" className="block text-sm font-medium text-gray-700 mb-1">
-                  Last Name
-                </label>
-                <input
-                  id="last_name"
-                  name="last_name"
-                  type="text"
-                  value={formData.last_name}
-                  onChange={handleChange}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-                />
-              </div>
-            </div>
+          <PasswordInput
+            label="Password"
+            name="password"
+            value={formData.password}
+            onChange={handleChange}
+            placeholder="At least 8 characters"
+          />
 
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
+          <PasswordInput
+            label="Confirm Password"
+            name="password2"
+            value={formData.password2}
+            onChange={handleChange}
+            placeholder="Re-enter your password"
+          />
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                minLength={8}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-              <p className="text-xs text-gray-500 mt-1">Minimum 8 characters</p>
-            </div>
+          {error && <div className="text-sm text-red-600">{error}</div>}
 
-            <div>
-              <label htmlFor="password2" className="block text-sm font-medium text-gray-700 mb-1">
-                Confirm Password
-              </label>
-              <input
-                id="password2"
-                name="password2"
-                type="password"
-                value={formData.password2}
-                onChange={handleChange}
-                required
-                minLength={8}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-black text-white py-3 font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Creating account...' : 'Create Account'}
+          </button>
+        </form>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Creating account...' : 'Create Account'}
-            </button>
-          </form>
-
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Already have an account?{' '}
-            <Link to="/login" className="text-gray-900 font-medium hover:underline">
-              Login
-            </Link>
-          </p>
+        <div className="text-sm text-gray-600 mt-4">
+          Already have an account?{' '}
+          <button onClick={() => navigate('/login')} className="underline">
+            Login
+          </button>
         </div>
       </div>
     </div>
   )
 }
-
-
