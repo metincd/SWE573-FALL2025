@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import TextInput from '../components/ui/TextInput'
+import PasswordInput from '../components/ui/PasswordInput'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -12,10 +14,8 @@ export default function Login() {
   const location = useLocation()
 
   useEffect(() => {
-    // Show success message from registration if available
     if (location.state?.message) {
-      setError('') // Clear any existing error
-      // You could show a success message here instead
+      setError('')
     }
   }, [location])
 
@@ -35,66 +35,48 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
-      <div className="w-full max-w-md">
-        <div className="rounded-2xl border bg-white shadow-sm p-8">
-          <h1 className="text-2xl font-semibold mb-2">Login</h1>
-          <p className="text-gray-600 mb-6">Sign in to The Hive</p>
+    <div className="max-w-md mx-auto w-full">
+      <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm">
+        <h2 className="text-xl font-bold">Login</h2>
+        <p className="text-sm text-gray-600 mt-1">Join the community, discover services.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <div className="rounded-lg bg-red-50 border border-red-200 text-red-700 px-4 py-3 text-sm">
-                {error}
-              </div>
-            )}
+        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+          <TextInput
+            name="username"
+            label="Email"
+            type="email"
+            placeholder="example@email.com"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="email"
+          />
 
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
-                Email
-              </label>
-              <input
-                id="username"
-                name="username"
-                type="email"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
+          <PasswordInput
+            name="password"
+            label="Password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-              />
-            </div>
+          {error && <div className="text-sm text-red-600">{error}</div>}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-lg bg-gray-900 text-white px-4 py-2 text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Logging in...' : 'Login'}
-            </button>
-          </form>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-2xl bg-black text-white py-3 font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Logging in...' : 'Login'}
+          </button>
+        </form>
 
-          <p className="mt-6 text-center text-sm text-gray-600">
-            Don't have an account?{' '}
-            <Link to="/register" className="text-gray-900 font-medium hover:underline">
-              Sign Up
-            </Link>
-          </p>
+        <div className="text-sm text-gray-600 mt-4">
+          Don't have an account?{' '}
+          <button onClick={() => navigate('/register')} className="underline">
+            Sign up now
+          </button>
         </div>
       </div>
     </div>
   )
 }
-
