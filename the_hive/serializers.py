@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import (
     User,
     Profile,
@@ -24,6 +25,25 @@ from .models import (
 from django.contrib.contenttypes.models import ContentType
 
 
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """Custom token serializer that uses email instead of username"""
+    username_field = 'email'
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove 'email' field and add 'username' field that accepts email
+        if 'email' in self.fields:
+            del self.fields['email']
+        self.fields['username'] = serializers.EmailField()
+        self.fields['username'].label = 'Email'
+
+    def validate(self, attrs):
+        # Convert 'username' to 'email' for parent class validation
+        if 'username' in attrs:
+            attrs['email'] = attrs.pop('username')
+        return super().validate(attrs)
+
+
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
 
@@ -31,6 +51,28 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ["id", "email", "first_name", "last_name", "full_name", "date_joined"]
         read_only_fields = ["id", "email", "date_joined", "full_name"]
+
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
+    password2 = serializers.CharField(write_only=True, required=True, min_length=8)
+
+    class Meta:
+        model = User
+        fields = ["email", "password", "password2", "first_name", "last_name"]
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password2"]:
+            raise serializers.ValidationError({"password": "Password fields didn't match."})
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop("password2")
+        password = validated_data.pop("password")
+        user = User.objects.create_user(**validated_data)
+        user.set_password(password)
+        user.save()
+        return user
 
 
 class ProfileSerializer(serializers.ModelSerializer):

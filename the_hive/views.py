@@ -4,7 +4,7 @@ from django.db import connection
 from rest_framework import viewsets, permissions, filters, generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
 
 from .models import (
     Profile,
@@ -46,6 +46,7 @@ from .serializers import (
     UserRatingSerializer,
     ReportSerializer,
     ModerationActionSerializer,
+    UserRegistrationSerializer,
 )
 from django.contrib.contenttypes.models import ContentType
 
@@ -207,6 +208,22 @@ class MeView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         profile, _ = Profile.objects.get_or_create(user=self.request.user)
         return profile
+
+
+@api_view(["POST"])
+@permission_classes([permissions.AllowAny])
+def register(request):
+    """User registration endpoint - public access"""
+    serializer = UserRegistrationSerializer(data=request.data)
+    if serializer.is_valid():
+        user = serializer.save()
+        # Create profile for the user
+        Profile.objects.get_or_create(user=user)
+        return Response(
+            {"message": "User created successfully", "user_id": user.id},
+            status=status.HTTP_201_CREATED,
+        )
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ServiceSessionViewSet(viewsets.ModelViewSet):
