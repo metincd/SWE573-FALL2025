@@ -2,7 +2,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.db import connection
 from rest_framework import viewsets, permissions, filters, generics, status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 
@@ -173,13 +173,52 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        # Use prefetch_related for service to ensure it's loaded with owner
         return (
-            ServiceRequest.objects.select_related("service", "requester", "service__owner")
+            ServiceRequest.objects
+            .select_related("service", "requester", "service__owner")
+            .prefetch_related("service__tags")
             .filter(Q(requester=user) | Q(service__owner=user))
+            .order_by("-created_at")
         )
+    
+    def get_serializer_context(self):
+        """Add request to serializer context"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    def get_object(self):
+        """Override to ensure service.owner is loaded"""
+        obj = super().get_object()
+        # Ensure service and owner are loaded
+        if hasattr(obj, 'service'):
+            if not hasattr(obj.service, 'owner') or obj.service.owner is None:
+                obj.service.refresh_from_db(fields=['owner'])
+        return obj
 
     def perform_create(self, serializer):
-        serializer.save(requester=self.request.user)
+        user = self.request.user
+        service = serializer.validated_data.get('service')
+        
+        # Check if user already has a request for this service
+        existing_request = ServiceRequest.objects.filter(
+            requester=user,
+            service=service
+        ).first()
+        
+        if existing_request:
+            raise ValidationError({
+                'service': f'You already have a {existing_request.status} request for this service.'
+            })
+        
+        # Check if user is trying to request their own service
+        if service.owner == user:
+            raise ValidationError({
+                'service': 'You cannot request your own service.'
+            })
+        
+        serializer.save(requester=user)
 
     @action(detail=True, methods=["post"])
     def set_status(self, request, pk=None):
@@ -187,16 +226,76 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         new_status = request.data.get("status")
         allowed = {"pending", "accepted", "rejected", "completed", "cancelled"}
         if new_status not in allowed:
-            return Response({"detail": "Geçersiz durum."}, status=400)
+            return Response({"detail": "Invalid status."}, status=400)
         user = request.user
+        
+        # Get service owner (should be loaded via select_related)
+        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
+        service_owner = sr.service.owner
+        
         if new_status == "cancelled" and sr.requester != user:
-            return Response({"detail": "Bu işlemi sadece talep sahibi yapabilir."}, status=403)
-        if new_status in {"accepted", "rejected", "completed"} and sr.service.owner != user:
-            return Response({"detail": "Bu işlemi sadece servis sahibi yapabilir."}, status=403)
+            return Response({"detail": "Only the requester can cancel this request."}, status=403)
+        if new_status in {"accepted", "rejected", "completed"} and service_owner_id != user.id:
+            return Response({
+                "detail": f"Only the service owner can perform this action. Service owner ID: {service_owner_id}, Your ID: {user.id}"
+            }, status=403)
+        
         sr.status = new_status
         # Service owner yanıt verdiğinde responded_at'i güncelle
-        if new_status in {"accepted", "rejected"} and sr.service.owner == user:
+        if new_status in {"accepted", "rejected"} and service_owner_id == user.id:
             sr.responded_at = timezone.now()
+        
+        # When service is completed, transfer time
+        # Logic: Requester (service alan) → Owner (hizmet veren) transfer
+        # - If you created a service (owner) and someone requested it: requester pays you ✓
+        # - If you requested a service (requester): you pay the owner ✓
+        if new_status == "completed" and service_owner_id == user.id:
+            # Check if time already transferred (to avoid double transfer)
+            from decimal import Decimal
+            service_hours = Decimal(str(sr.service.estimated_hours or 0))
+            
+            if service_hours > 0:
+                # Get or create time accounts
+                requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
+                owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
+                
+                # Check if requester has enough balance
+                if requester_account.balance >= service_hours:
+                    # Debit from requester (service alan kişiden düş)
+                    requester_account.balance -= service_hours
+                    requester_account.total_spent += service_hours
+                    requester_account.save()
+                    
+                    # Credit to owner (hizmet veren kişiye ekle)
+                    owner_account.balance += service_hours
+                    owner_account.total_earned += service_hours
+                    owner_account.save()
+                    
+                    # Create transactions
+                    TimeTransaction.objects.create(
+                        account=requester_account,
+                        transaction_type="debit",
+                        amount=service_hours,
+                        status="completed",
+                        description=f"Payment for service: {sr.service.title}",
+                        related_service=sr.service,
+                        processed_by=user,
+                    )
+                    TimeTransaction.objects.create(
+                        account=owner_account,
+                        transaction_type="credit",
+                        amount=service_hours,
+                        status="completed",
+                        description=f"Earned from service: {sr.service.title}",
+                        related_service=sr.service,
+                        processed_by=user,
+                    )
+                else:
+                    return Response(
+                        {"detail": f"Requester does not have enough balance. Required: {service_hours}h, Available: {requester_account.balance}h"},
+                        status=400
+                    )
+        
         sr.save(update_fields=["status", "responded_at", "updated_at"])
         return Response(ServiceRequestSerializer(sr).data)
 
@@ -219,6 +318,11 @@ def register(request):
         user = serializer.save()
         # Create profile for the user
         Profile.objects.get_or_create(user=user)
+        # Create time account with default 3 hours balance
+        TimeAccount.objects.get_or_create(
+            user=user,
+            defaults={'balance': 3.00}
+        )
         return Response(
             {"message": "User created successfully", "user_id": user.id},
             status=status.HTTP_201_CREATED,

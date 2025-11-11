@@ -129,6 +129,60 @@ class ServiceSerializer(serializers.ModelSerializer):
 
 class ServiceRequestSerializer(serializers.ModelSerializer):
     requester = UserSerializer(read_only=True)
+    # For write: accept service ID
+    service_id = serializers.PrimaryKeyRelatedField(
+        queryset=Service.objects.all(),
+        source='service',
+        write_only=True,
+        required=True
+    )
+    # For read: use nested serializer but avoid circular dependency
+    service = serializers.SerializerMethodField()
+    
+    def get_service(self, obj):
+        """Return service details with owner - always called for read operations"""
+        # Get service_id first (more reliable)
+        service_id = getattr(obj, 'service_id', None)
+        if not service_id:
+            # Try to get from service object
+            service_obj = getattr(obj, 'service', None)
+            if service_obj and hasattr(service_obj, 'id'):
+                service_id = service_obj.id
+            else:
+                return None
+        
+        # Always reload service with owner to ensure it's loaded
+        from .models import Service
+        try:
+            service = Service.objects.select_related('owner').get(id=service_id)
+        except Service.DoesNotExist:
+            return None
+        
+        # Build owner info
+        owner_info = None
+        if service.owner:
+            try:
+                owner_info = {
+                    'id': service.owner.id,
+                    'username': service.owner.username,
+                    'email': service.owner.email,
+                    'full_name': getattr(service.owner, 'get_full_name', lambda: '')() or service.owner.username,
+                }
+            except Exception:
+                owner_info = {
+                    'id': service.owner.id if hasattr(service.owner, 'id') else None,
+                    'username': getattr(service.owner, 'username', 'Unknown'),
+                }
+        
+        return {
+            'id': service.id,
+            'title': service.title,
+            'description': service.description,
+            'service_type': service.service_type,
+            'estimated_hours': service.estimated_hours,
+            'status': service.status,
+            'owner': owner_info,
+        }
 
     class Meta:
         model = ServiceRequest
@@ -136,6 +190,7 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             "id",
             "requester",
             "service",
+            "service_id",
             "status",
             "message",
             "response_note",
@@ -143,7 +198,7 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             "updated_at",
             "responded_at",
         ]
-        read_only_fields = ["id", "requester", "created_at", "updated_at", "responded_at"]
+        read_only_fields = ["id", "requester", "service", "created_at", "updated_at", "responded_at"]
 
 
 class ServiceSessionSerializer(serializers.ModelSerializer):
