@@ -1,8 +1,11 @@
+import React from 'react'
+
 interface TextInputProps {
   label?: string
   type?: string
   value: string
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  onFocus?: (e: React.FocusEvent<HTMLInputElement>) => void
   placeholder?: string
   autoComplete?: string
   rightSlot?: React.ReactNode
@@ -11,27 +14,30 @@ interface TextInputProps {
   required?: boolean
 }
 
-export default function TextInput({
+const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(({
   label,
   type = "text",
   value,
   onChange,
+  onFocus,
   placeholder,
   autoComplete,
   rightSlot,
   name,
   className = "",
   required = false,
-}: TextInputProps) {
+}, ref) => {
   return (
     <label className={`block ${className}`}>
       {label && <span className="text-sm font-medium text-gray-700">{label}</span>}
       <div className="mt-1 relative">
         <input
+          ref={ref}
           name={name}
           type={type}
           value={value}
           onChange={onChange}
+          onFocus={onFocus}
           placeholder={placeholder}
           autoComplete={autoComplete}
           required={required}
@@ -45,5 +51,9 @@ export default function TextInput({
       </div>
     </label>
   )
-}
+})
+
+TextInput.displayName = 'TextInput'
+
+export default TextInput
 

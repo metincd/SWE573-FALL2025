@@ -1,12 +1,11 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
-import { authApi, userApi } from '../lib/api'
+import { authApi, userApi } from '../api'
 
 interface User {
   id: number
   username: string
   email: string
   full_name?: string
-  // Profile bilgileri
   profile?: {
     display_name?: string
     bio?: string
@@ -57,7 +56,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   useEffect(() => {
-    // Sayfa yüklendiğinde token kontrolü ve user bilgisini al
     const token = localStorage.getItem('access_token')
     if (token) {
       fetchUser().finally(() => setLoading(false))
@@ -72,7 +70,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { access, refresh } = response.data
       localStorage.setItem('access_token', access)
       localStorage.setItem('refresh_token', refresh)
-      // Login sonrası user bilgisini al
       await fetchUser()
     } catch (error) {
       throw error

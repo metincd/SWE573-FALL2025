@@ -119,6 +119,7 @@ class ServiceSerializer(serializers.ModelSerializer):
             "tags",
             "latitude",
             "longitude",
+            "address",
             "status",
             "estimated_hours",
             "created_at",
