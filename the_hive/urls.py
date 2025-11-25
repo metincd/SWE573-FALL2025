@@ -22,6 +22,7 @@ from .views import (
     health_check,
     register,
 )
+from .geocoding import geocode_address
 
 router = DefaultRouter()
 router.register(r"tags", TagViewSet, basename="tag")
@@ -46,6 +47,7 @@ urlpatterns = [
     path("health/", health_check, name="health-check"),
     path("register/", register, name="register"),
     path("me/", MeView.as_view(), name="me"),
+    path("geocode/", geocode_address, name="geocode-address"),
     path("", include(router.urls)),
 ]
 

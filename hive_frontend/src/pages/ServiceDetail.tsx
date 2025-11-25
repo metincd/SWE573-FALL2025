@@ -1,9 +1,37 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
-import { api } from '../lib/api'
-import { useState } from 'react'
+import { api } from '../api'
+import { useState, useMemo } from 'react'
 import TextInput from '../components/ui/TextInput'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+delete (L.Icon.Default.prototype as any)._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+})
+
+const offerIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
+
+const needIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
 
 export default function ServiceDetail() {
   const { id } = useParams<{ id: string }>()
@@ -46,6 +74,20 @@ export default function ServiceDetail() {
   const existingRequest = myRequestsData?.results?.find(
     (req: any) => req.service?.id === service?.id
   )
+
+  const hasLocation = service?.latitude && service?.longitude
+  const mapCenter: [number, number] = useMemo(() => {
+    if (hasLocation && service?.latitude && service?.longitude) {
+      const lat = typeof service.latitude === 'string' ? parseFloat(service.latitude) : service.latitude
+      const lng = typeof service.longitude === 'string' ? parseFloat(service.longitude) : service.longitude
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return [lat, lng]
+      }
+    }
+    return [41.0082, 28.9784]
+  }, [service?.latitude, service?.longitude, hasLocation])
+
+  const isOffer = service?.service_type === 'offer' || service?.service_type === 'OFFER'
 
   // Create service request mutation
   const createRequestMutation = useMutation({
@@ -112,11 +154,12 @@ export default function ServiceDetail() {
     )
   }
 
-  if (error || !service) {
+  if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-2">Service not found</p>
+          <p className="text-red-600 mb-2">Error loading service</p>
+          <p className="text-sm text-gray-500 mb-4">{error instanceof Error ? error.message : 'Unknown error'}</p>
           <button
             onClick={() => navigate('/services')}
             className="text-sm text-gray-600 underline"
@@ -128,7 +171,23 @@ export default function ServiceDetail() {
     )
   }
 
-  const isOwner = service.owner.id === user?.id
+  if (!service) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600 mb-2">Service not found</p>
+          <button
+            onClick={() => navigate('/services')}
+            className="text-sm text-gray-600 underline"
+          >
+            Back to Services
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const isOwner = service.owner?.id === user?.id
   const canRequest = isAuthenticated && !isOwner && !existingRequest && (service.status === 'active' || service.status === 'ACTIVE')
 
   return (
@@ -251,6 +310,47 @@ export default function ServiceDetail() {
           </div>
         )}
       </div>
+
+      {/* Map Section */}
+      {hasLocation && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur overflow-hidden shadow-sm mb-6">
+          <div className="p-4 border-b border-gray-200">
+            <h2 className="text-xl font-bold">Location</h2>
+            <p className="text-sm text-gray-600 mt-1">Service location on map</p>
+          </div>
+          <div className="h-[400px] w-full">
+            <MapContainer
+              center={mapCenter}
+              zoom={15}
+              style={{ height: '100%', width: '100%', zIndex: 0 }}
+              scrollWheelZoom={true}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <Marker
+                position={mapCenter}
+                icon={isOffer ? offerIcon : needIcon}
+              >
+                <Popup>
+                  <div className="p-2">
+                    <h3 className="font-semibold text-sm mb-1">{service.title}</h3>
+                    <p className="text-xs text-gray-600 mb-2">
+                      {service.owner?.full_name || service.owner?.username || 'Unknown'}
+                    </p>
+                    <span className={`px-2 py-0.5 rounded-full text-xs ${
+                      isOffer ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {isOffer ? 'OFFER' : 'NEED'}
+                    </span>
+                  </div>
+                </Popup>
+              </Marker>
+            </MapContainer>
+          </div>
+        </div>
+      )}
 
       {/* Reviews Section */}
       {reviewsData && reviewsData.results && reviewsData.results.length > 0 && (

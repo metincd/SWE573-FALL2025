@@ -29,7 +29,7 @@ export default function Card({
         {(hours !== undefined || distanceKm !== undefined) && (
           <div className="text-right">
             {hours !== undefined && (
-              <div className="text-sm font-semibold">⏱️ {hours} saat</div>
+              <div className="text-sm font-semibold">⏱️ {hours} hours</div>
             )}
             {distanceKm !== undefined && (
               <div className="text-xs text-gray-500">📍 {distanceKm.toFixed(1)} km</div>

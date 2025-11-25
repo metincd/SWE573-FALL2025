@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { api } from '../lib/api'
+import { api } from '../api'
 import Card from '../components/ui/Card'
 import TextInput from '../components/ui/TextInput'
 

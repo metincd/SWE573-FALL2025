@@ -2,10 +2,38 @@ import { useMemo, useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { api } from '../lib/api'
+import { api } from '../api'
 import TextInput from '../components/ui/TextInput'
 import Pill from '../components/ui/Pill'
 import Card from '../components/ui/Card'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+
+delete (L.Icon.Default.prototype as any)._getIconUrl
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+})
+
+const offerIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
+
+const needIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
 
 const demoTags = [
   'cooking',
@@ -93,6 +121,22 @@ export default function Home() {
     })
   }, [list, query, activeTags])
 
+  const servicesWithLocation = useMemo(() => {
+    if (!servicesData?.results) return []
+    return servicesData.results.filter((s: any) => s.latitude && s.longitude)
+  }, [servicesData])
+
+  const mapCenter: [number, number] = useMemo(() => {
+    if (servicesWithLocation.length === 0) {
+      return [41.0082, 28.9784]
+    }
+    const lats = servicesWithLocation.map((s: any) => parseFloat(s.latitude))
+    const lngs = servicesWithLocation.map((s: any) => parseFloat(s.longitude))
+    const avgLat = lats.reduce((a: number, b: number) => a + b, 0) / lats.length
+    const avgLng = lngs.reduce((a: number, b: number) => a + b, 0) / lngs.length
+    return [avgLat, avgLng]
+  }, [servicesWithLocation])
+
   function toggleTag(t: string) {
     setActiveTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
   }
@@ -155,15 +199,99 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Map placeholder ve Services List */}
+      {/* Map ve Services List */}
       <div className="grid md:grid-cols-3 gap-4 mt-6">
-        <div className="md:col-span-2 rounded-3xl border border-gray-200 bg-white/70 backdrop-blur p-4 h-[340px] flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-sm text-gray-500">Map Area (Mock)</div>
-            <div className="text-xs text-gray-400 mt-1">
-              (Offers & Needs pins will appear here)
+        <div className="md:col-span-2 rounded-3xl border border-gray-200 bg-white/70 backdrop-blur overflow-hidden h-[500px]">
+          {servicesWithLocation.length > 0 ? (
+            <MapContainer
+              center={mapCenter}
+              zoom={12}
+              style={{ height: '100%', width: '100%', zIndex: 0 }}
+              scrollWheelZoom={true}
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              {servicesWithLocation.map((service: any) => {
+                const isOffer = service.service_type === 'offer' || service.service_type === 'OFFER'
+                const lat = parseFloat(service.latitude)
+                const lng = parseFloat(service.longitude)
+                
+                const matchesFilter = filtered.some((f: any) => f.id === service.id)
+                if (!matchesFilter) return null
+
+                return (
+                  <Marker
+                    key={service.id}
+                    position={[lat, lng]}
+                    icon={isOffer ? offerIcon : needIcon}
+                  >
+                    <Popup className="custom-popup" maxWidth={300} minWidth={250}>
+                      <div className="p-3">
+                        <div className="flex items-start justify-between mb-2">
+                          <h3 className="font-bold text-base text-gray-900 pr-2">{service.title}</h3>
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap ${
+                            isOffer ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {isOffer ? 'OFFER' : 'NEED'}
+                          </span>
+                        </div>
+                        
+                        <p className="text-sm text-gray-700 mb-3 line-clamp-3">{service.description}</p>
+                        
+                        <div className="space-y-2 mb-3">
+                          <div className="flex items-center text-xs text-gray-600">
+                            <span className="font-semibold mr-1">Owner:</span>
+                            <span>{service.owner?.full_name || service.owner?.username || 'Unknown'}</span>
+                          </div>
+                          <div className="flex items-center text-xs text-gray-600">
+                            <span className="font-semibold mr-1">Hours:</span>
+                            <span>⏱️ {service.estimated_hours || 'N/A'} hours</span>
+                          </div>
+                          {service.tags && service.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {service.tags.slice(0, 3).map((tag: any) => (
+                                <span
+                                  key={tag.slug || tag.id || tag}
+                                  className="px-1.5 py-0.5 text-xs rounded border border-gray-300 bg-white/70"
+                                >
+                                  #{typeof tag === 'string' ? tag : tag.slug || tag.name}
+                                </span>
+                              ))}
+                              {service.tags.length > 3 && (
+                                <span className="px-1.5 py-0.5 text-xs text-gray-500">
+                                  +{service.tags.length - 3} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <button
+                          onClick={() => navigate(`/services/${service.id}`)}
+                          className="w-full px-4 py-2 text-sm font-semibold bg-black text-white rounded-lg hover:opacity-90 transition-opacity"
+                        >
+                          View Full Details
+                        </button>
+                      </div>
+                    </Popup>
+                  </Marker>
+                )
+              })}
+            </MapContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <div className="text-sm text-gray-500">Map Area</div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {servicesLoading
+                    ? 'Loading services...'
+                    : 'No services with location data yet. Add location when creating a service.'}
+                </div>
+              </div>
             </div>
-          </div>
+          )}
         </div>
         <div className="flex flex-col gap-3">
           {servicesLoading ? (

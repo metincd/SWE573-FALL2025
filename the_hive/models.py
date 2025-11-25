@@ -159,6 +159,10 @@ class Service(models.Model):
     longitude = models.DecimalField(
         _("longitude"), max_digits=9, decimal_places=6, null=True, blank=True
     )
+    address = models.TextField(
+        _("address"), blank=True, null=True,
+        help_text=_("Human-readable address for this service location")
+    )
     status = models.CharField(
         _("status"), max_length=20, choices=SERVICE_STATUS, default="active"
     )

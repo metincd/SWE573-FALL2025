@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../lib/api'
+import { api } from '../api'
 import Card from '../components/ui/Card'
 
 export default function Services() {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../lib/api'
+import { api } from '../api'
 import TextInput from '../components/ui/TextInput'
 import PasswordInput from '../components/ui/PasswordInput'
 
