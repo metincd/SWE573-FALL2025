@@ -53,6 +53,8 @@ export default function Home() {
   const [mode, setMode] = useState<'offers' | 'needs'>('offers')
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 5
 
   // Fetch services
   const { data: servicesData, isLoading: servicesLoading } = useQuery({
@@ -96,10 +98,8 @@ export default function Home() {
     return { offers: offersList, needs: needsList }
   }, [servicesData])
 
-  // Filtering
-  const list = mode === 'offers' ? offers : needs
-
   const filtered = useMemo(() => {
+    const list = mode === 'offers' ? offers : needs
     return list.filter((item: any) => {
       const matchesQuery = query
         ? (
@@ -119,7 +119,19 @@ export default function Home() {
 
       return matchesQuery && matchesTags
     })
-  }, [list, query, activeTags])
+  }, [mode, offers, needs, query, activeTags])
+
+  const paginatedServices = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return filtered.slice(startIndex, endIndex)
+  }, [filtered, currentPage])
+
+  const totalPages = Math.ceil(filtered.length / itemsPerPage)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [mode, query, activeTags])
 
   const servicesWithLocation = useMemo(() => {
     if (!servicesData?.results) return []
@@ -179,23 +191,17 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Tags */}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {demoTags.map((t) => (
-            <Pill key={t} active={activeTags.includes(t)} onClick={() => toggleTag(t)}>
-              #{t}
-            </Pill>
-          ))}
-        </div>
-
-        {/* Mode Toggle */}
-        <div className="mt-4 flex items-center gap-2 text-sm">
-          <Pill active={mode === 'offers'} onClick={() => setMode('offers')}>
-            Offers ({offers.length})
-          </Pill>
-          <Pill active={mode === 'needs'} onClick={() => setMode('needs')}>
-            Needs ({needs.length})
-          </Pill>
+        <div className="mt-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-medium text-gray-700">Popular Tags:</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {demoTags.map((t) => (
+              <Pill key={t} active={activeTags.includes(t)} onClick={() => toggleTag(t)}>
+                #{t}
+              </Pill>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -294,6 +300,14 @@ export default function Home() {
           )}
         </div>
         <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Pill active={mode === 'offers'} onClick={() => setMode('offers')}>
+              Offers ({offers.length})
+            </Pill>
+            <Pill active={mode === 'needs'} onClick={() => setMode('needs')}>
+              Needs ({needs.length})
+            </Pill>
+          </div>
           {servicesLoading ? (
             <div className="text-center text-gray-500 py-8">Loading...</div>
           ) : filtered.length === 0 ? (
@@ -305,38 +319,47 @@ export default function Home() {
                   : 'No services needed yet'}
             </div>
           ) : (
-            filtered.map((item: any) => (
-              <Card
-                key={item.id}
-                title={item.title}
-                subtitle={`${item.owner?.full_name || item.owner?.username || 'User'} • ${
-                  (item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Offering' : 'Seeking'
-                }`}
-                desc={item.description}
-                hours={item.estimated_hours}
-                tags={(item.tags || []).map((t: any) =>
-                  typeof t === 'string' ? t : t.slug || t.name || ''
-                )}
-                cta={(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Request' : 'Help'}
-                onClick={() => navigate(`/services/${item.id}`)}
-              />
-            ))
+            <>
+              {paginatedServices.map((item: any) => (
+                <Card
+                  key={item.id}
+                  title={item.title}
+                  subtitle={`${item.owner?.full_name || item.owner?.username || 'User'} • ${
+                    (item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Offering' : 'Seeking'
+                  }`}
+                  desc={item.description}
+                  hours={item.estimated_hours}
+                  tags={(item.tags || []).map((t: any) =>
+                    typeof t === 'string' ? t : t.slug || t.name || ''
+                  )}
+                  cta={(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Request' : 'Help'}
+                  onClick={() => navigate(`/services/${item.id}`)}
+                />
+              ))}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-center gap-2 mt-4">
+                  <button
+                    onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 rounded-lg border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
-      </div>
-
-      {/* Forums / Commons preview */}
-      <div className="mt-6 grid md:grid-cols-3 gap-4">
-        {['Announcements', 'Workshops', 'Community Chat'].map((col) => (
-          <div key={col} className="rounded-3xl border border-gray-200 bg-white/70 backdrop-blur p-4">
-            <div className="text-sm font-semibold mb-2">{col}</div>
-            <ul className="text-sm text-gray-700 space-y-1 list-disc list-inside">
-              <li>Community rules updated.</li>
-              <li>Collective picnic this weekend.</li>
-              <li>Next week "storytelling" gathering.</li>
-            </ul>
-          </div>
-        ))}
       </div>
 
       {/* Floating create button */}
