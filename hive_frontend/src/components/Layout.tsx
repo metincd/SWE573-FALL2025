@@ -38,6 +38,12 @@ export default function Layout() {
                 >
                   Sign Up
                 </button>
+                <Link
+                  to="/manifesto"
+                  className="px-3 py-2 text-sm rounded-xl hover:bg-white/60"
+                >
+                  Manifesto
+                </Link>
               </>
             ) : (
               <>
@@ -47,6 +53,12 @@ export default function Layout() {
                     {user?.profile?.display_name || user?.full_name || user?.username}
                   </span>
                 </div>
+                <Link
+                  to="/manifesto"
+                  className="px-3 py-2 text-sm rounded-xl hover:bg-white/60"
+                >
+                  Manifesto
+                </Link>
                 <Link
                   to="/services"
                   className="px-3 py-2 text-sm rounded-xl hover:bg-white/60"

@@ -7,6 +7,7 @@ import Services from './pages/Services'
 import ServiceDetail from './pages/ServiceDetail'
 import CreateService from './pages/CreateService'
 import Profile from './pages/Profile'
+import Manifesto from './pages/Manifesto'
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
         <Route index element={<Home />} />
         <Route path="login" element={<Login />} />
         <Route path="register" element={<Register />} />
+        <Route path="manifesto" element={<Manifesto />} />
         <Route path="services" element={<Services />} />
         <Route path="services/:id" element={<ServiceDetail />} />
         <Route path="services/create" element={<CreateService />} />
