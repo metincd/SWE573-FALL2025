@@ -77,12 +77,14 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
+    user_id = serializers.IntegerField(source="user.id", read_only=True)
 
     class Meta:
         model = Profile
         fields = [
             "id",
             "user",
+            "user_id",
             "display_name",
             "bio",
             "avatar_url",
@@ -92,7 +94,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "user", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "user_id", "created_at", "updated_at"]
 
 
 class TagSerializer(serializers.ModelSerializer):
@@ -107,6 +109,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     tags = serializers.SlugRelatedField(
         many=True, slug_field="slug", queryset=Tag.objects.all(), required=False
     )
+    discussion_thread = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Service
@@ -122,6 +125,7 @@ class ServiceSerializer(serializers.ModelSerializer):
             "address",
             "status",
             "estimated_hours",
+            "discussion_thread",
             "created_at",
             "updated_at",
         ]
@@ -185,6 +189,13 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             'owner': owner_info,
         }
 
+    conversation = serializers.PrimaryKeyRelatedField(read_only=True)
+    owner_approved = serializers.BooleanField(read_only=True)
+    requester_approved = serializers.BooleanField(read_only=True)
+    actual_hours = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True, allow_null=True)
+    actual_hours_owner_approved = serializers.BooleanField(read_only=True)
+    actual_hours_requester_approved = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = ServiceRequest
         fields = [
@@ -195,6 +206,12 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             "status",
             "message",
             "response_note",
+            "conversation",
+            "owner_approved",
+            "requester_approved",
+            "actual_hours",
+            "actual_hours_owner_approved",
+            "actual_hours_requester_approved",
             "created_at",
             "updated_at",
             "responded_at",
@@ -267,7 +284,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         write_only=True,
         required=False,
     )
-    last_message = MessageSerializer(read_only=True)
+    last_message = serializers.SerializerMethodField()
     unread_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -286,10 +303,20 @@ class ConversationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "participants", "last_message", "unread_count", "created_at", "updated_at"]
 
+    def get_last_message(self, obj):
+        """Get the last message, handling None case"""
+        last_msg = obj.last_message
+        if last_msg:
+            return MessageSerializer(last_msg, context=self.context).data
+        return None
+
     def get_unread_count(self, obj):
         request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.unread_count_for_user(request.user)
+        if request and hasattr(request, 'user') and request.user and request.user.is_authenticated:
+            try:
+                return obj.unread_count_for_user(request.user)
+            except Exception:
+                return 0
         return 0
 
 

@@ -8,6 +8,9 @@ import ServiceDetail from './pages/ServiceDetail'
 import CreateService from './pages/CreateService'
 import Profile from './pages/Profile'
 import Manifesto from './pages/Manifesto'
+import Chat from './pages/Chat'
+import Messages from './pages/Messages'
+import UserProfile from './pages/UserProfile'
 
 function App() {
   return (
@@ -21,6 +24,9 @@ function App() {
         <Route path="services/:id" element={<ServiceDetail />} />
         <Route path="services/create" element={<CreateService />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="messages" element={<Messages />} />
+        <Route path="users/:userId" element={<UserProfile />} />
+        <Route path="chat/:conversationId" element={<Chat />} />
       </Route>
     </Routes>
   )

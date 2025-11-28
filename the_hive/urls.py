@@ -18,6 +18,7 @@ from .views import (
     UserRatingViewSet,
     ReportViewSet,
     ModerationActionViewSet,
+    ProfileViewSet,
     MeView,
     health_check,
     register,
@@ -42,6 +43,7 @@ router.register(r"reviews", ReviewViewSet, basename="review")
 router.register(r"user-ratings", UserRatingViewSet, basename="user-rating")
 router.register(r"reports", ReportViewSet, basename="report")
 router.register(r"moderation-actions", ModerationActionViewSet, basename="moderation-action")
+router.register(r"profiles", ProfileViewSet, basename="profile")
 
 urlpatterns = [
     path("health/", health_check, name="health-check"),

@@ -75,6 +75,42 @@ export default function ServiceDetail() {
     (req: any) => req.service?.id === service?.id
   )
 
+  const { data: discussionThread, refetch: refetchThread } = useQuery({
+    queryKey: ['thread', service?.discussion_thread],
+    queryFn: async () => {
+      if (!service?.discussion_thread) return null
+      const response = await api.get(`/threads/${service.discussion_thread}/`)
+      return response.data
+    },
+    enabled: !!service?.discussion_thread,
+  })
+
+  const { data: postsData, refetch: refetchPosts } = useQuery({
+    queryKey: ['posts', 'thread', discussionThread?.id],
+    queryFn: async () => {
+      if (!discussionThread?.id) return null
+      const response = await api.get(`/posts/?thread=${discussionThread.id}`)
+      return response.data
+    },
+    enabled: !!discussionThread?.id,
+  })
+
+  const [newPostBody, setNewPostBody] = useState('')
+
+  const createPostMutation = useMutation({
+    mutationFn: async (data: { thread: number; body: string }) => {
+      const response = await api.post('/posts/', data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts', 'thread', discussionThread?.id] })
+      queryClient.invalidateQueries({ queryKey: ['thread', service?.discussion_thread] })
+      setNewPostBody('')
+      refetchPosts()
+      refetchThread()
+    },
+  })
+
   const hasLocation = service?.latitude && service?.longitude
   const mapCenter: [number, number] = useMemo(() => {
     if (hasLocation && service?.latitude && service?.longitude) {
@@ -95,12 +131,16 @@ export default function ServiceDetail() {
       const response = await api.post('/service-requests/', data)
       return response.data
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['service-requests'] })
       queryClient.invalidateQueries({ queryKey: ['service-requests', 'my'] })
       setShowRequestForm(false)
       setRequestMessage('')
-      alert('Service request sent successfully!')
+      if (data?.conversation) {
+        navigate(`/chat/${data.conversation}`)
+      } else {
+        alert('Service request sent successfully!')
+      }
     },
     onError: (error: any) => {
       console.error('Service request error:', error.response?.data)
@@ -349,6 +389,73 @@ export default function ServiceDetail() {
               </Marker>
             </MapContainer>
           </div>
+        </div>
+      )}
+
+      {/* Discussions Section */}
+      {discussionThread && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
+          <h2 className="text-xl font-bold mb-4">Discussions</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            Public discussion about this service. Everyone can participate.
+          </p>
+          
+          {/* Posts List */}
+          {postsData?.results && postsData.results.length > 0 && (
+            <div className="space-y-4 mb-6">
+              {postsData.results.map((post: any) => (
+                <div key={post.id} className="border-b border-gray-200 pb-4 last:border-0">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      <p className="font-semibold">
+                        {post.author?.full_name || post.author?.username || 'Anonymous'}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {new Date(post.created_at).toLocaleDateString()} at{' '}
+                        {new Date(post.created_at).toLocaleTimeString()}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="text-gray-700 whitespace-pre-wrap">{post.body}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* New Post Form */}
+          {isAuthenticated && (
+            <div className="space-y-3">
+              <TextInput
+                label="Add a comment"
+                name="post_body"
+                value={newPostBody}
+                onChange={(e) => setNewPostBody(e.target.value)}
+                placeholder="Share your thoughts about this service..."
+                multiline
+                rows={3}
+              />
+              <button
+                onClick={() => {
+                  if (discussionThread?.id && newPostBody.trim()) {
+                    createPostMutation.mutate({
+                      thread: discussionThread.id,
+                      body: newPostBody.trim(),
+                    })
+                  }
+                }}
+                disabled={createPostMutation.isPending || !newPostBody.trim()}
+                className="px-6 py-2 rounded-xl bg-black text-white font-semibold hover:opacity-90 disabled:opacity-50"
+              >
+                {createPostMutation.isPending ? 'Posting...' : 'Post Comment'}
+              </button>
+            </div>
+          )}
+
+          {!isAuthenticated && (
+            <p className="text-sm text-gray-500 italic">
+              Please log in to participate in discussions.
+            </p>
+          )}
         </div>
       )}
 
