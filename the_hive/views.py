@@ -164,7 +164,17 @@ class ServiceViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        service = serializer.save(owner=self.request.user)
+        from .models import Thread
+        if not service.discussion_thread:
+            discussion_thread = Thread.objects.create(
+                title=f"Discussion: {service.title}",
+                author=self.request.user,
+                related_service=service,
+                status="open",
+            )
+            service.discussion_thread = discussion_thread
+            service.save(update_fields=["discussion_thread"])
 
 
 class ServiceRequestViewSet(viewsets.ModelViewSet):
@@ -173,14 +183,20 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        # Use prefetch_related for service to ensure it's loaded with owner
-        return (
+        qs = (
             ServiceRequest.objects
-            .select_related("service", "requester", "service__owner")
+            .select_related("service", "requester", "service__owner", "conversation")
             .prefetch_related("service__tags")
             .filter(Q(requester=user) | Q(service__owner=user))
-            .order_by("-created_at")
         )
+        # Filter by conversation if provided
+        conversation_id = self.request.query_params.get("conversation")
+        if conversation_id:
+            try:
+                qs = qs.filter(conversation_id=int(conversation_id))
+            except (ValueError, TypeError):
+                pass
+        return qs.order_by("-created_at")
     
     def get_serializer_context(self):
         """Add request to serializer context"""
@@ -218,26 +234,37 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
                 'service': 'You cannot request your own service.'
             })
         
-        serializer.save(requester=user)
+        # Create ServiceRequest
+        service_request = serializer.save(requester=user)
+        
+        # Create private conversation between requester and owner
+        from .models import Conversation
+        conversation = Conversation.objects.create(
+            title=f"Chat: {service.title}",
+            related_service=service,
+        )
+        conversation.participants.add(user, service.owner)
+        service_request.conversation = conversation
+        service_request.save(update_fields=["conversation"])
 
     @action(detail=True, methods=["post"])
     def set_status(self, request, pk=None):
+        """Set status - for accept/reject (owner only) and cancel (requester only)"""
         sr = self.get_object()
         new_status = request.data.get("status")
-        allowed = {"pending", "accepted", "rejected", "completed", "cancelled"}
+        allowed = {"pending", "accepted", "rejected", "cancelled"}
         if new_status not in allowed:
             return Response({"detail": "Invalid status."}, status=400)
         user = request.user
         
         # Get service owner (should be loaded via select_related)
         service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
-        service_owner = sr.service.owner
         
         if new_status == "cancelled" and sr.requester != user:
             return Response({"detail": "Only the requester can cancel this request."}, status=403)
-        if new_status in {"accepted", "rejected", "completed"} and service_owner_id != user.id:
+        if new_status in {"accepted", "rejected"} and service_owner_id != user.id:
             return Response({
-                "detail": f"Only the service owner can perform this action. Service owner ID: {service_owner_id}, Your ID: {user.id}"
+                "detail": f"Only the service owner can perform this action."
             }, status=403)
         
         sr.status = new_status
@@ -245,68 +272,193 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         if new_status in {"accepted", "rejected"} and service_owner_id == user.id:
             sr.responded_at = timezone.now()
         
-        # When service is completed, transfer time
-        # Logic: Requester (service alan) → Owner (hizmet veren) transfer
-        # - If you created a service (owner) and someone requested it: requester pays you ✓
-        # - If you requested a service (requester): you pay the owner ✓
-        if new_status == "completed" and service_owner_id == user.id:
-            # Check if time already transferred (to avoid double transfer)
-            from decimal import Decimal
-            service_hours = Decimal(str(sr.service.estimated_hours or 0))
-            
-            if service_hours > 0:
-                # Get or create time accounts
-                requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
-                owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
-                
-                # Check if requester has enough balance
-                if requester_account.balance >= service_hours:
-                    # Debit from requester (service alan kişiden düş)
-                    requester_account.balance -= service_hours
-                    requester_account.total_spent += service_hours
-                    requester_account.save()
-                    
-                    # Credit to owner (hizmet veren kişiye ekle)
-                    owner_account.balance += service_hours
-                    owner_account.total_earned += service_hours
-                    owner_account.save()
-                    
-                    # Create transactions
-                    TimeTransaction.objects.create(
-                        account=requester_account,
-                        transaction_type="debit",
-                        amount=service_hours,
-                        status="completed",
-                        description=f"Payment for service: {sr.service.title}",
-                        related_service=sr.service,
-                        processed_by=user,
-                    )
-                    TimeTransaction.objects.create(
-                        account=owner_account,
-                        transaction_type="credit",
-                        amount=service_hours,
-                        status="completed",
-                        description=f"Earned from service: {sr.service.title}",
-                        related_service=sr.service,
-                        processed_by=user,
-                    )
-                else:
-                    return Response(
-                        {"detail": f"Requester does not have enough balance. Required: {service_hours}h, Available: {requester_account.balance}h"},
-                        status=400
-                    )
-        
         sr.save(update_fields=["status", "responded_at", "updated_at"])
+        return Response(ServiceRequestSerializer(sr).data)
+    
+    @action(detail=True, methods=["post"])
+    def approve_start(self, request, pk=None):
+        """Approve to start service - both parties must approve"""
+        sr = self.get_object()
+        user = request.user
+        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
+        
+        # Check if user is part of this request
+        if user.id != service_owner_id and user.id != sr.requester.id:
+            return Response({"detail": "You are not part of this service request."}, status=403)
+        
+        # Check if request is accepted
+        if sr.status != "accepted":
+            return Response({"detail": "Service request must be accepted first."}, status=400)
+        
+        # Set approval based on user role
+        if user.id == service_owner_id:
+            sr.owner_approved = True
+        elif user.id == sr.requester.id:
+            sr.requester_approved = True
+        
+        # If both approved, set status to in_progress
+        if sr.owner_approved and sr.requester_approved:
+            sr.status = "in_progress"
+        
+        sr.save()
+        return Response(ServiceRequestSerializer(sr).data)
+    
+    @action(detail=True, methods=["post"])
+    def update_hours(self, request, pk=None):
+        """Update actual hours worked - can be called by either party"""
+        sr = self.get_object()
+        user = request.user
+        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
+        
+        # Check if user is part of this request
+        if user.id != service_owner_id and user.id != sr.requester.id:
+            return Response({"detail": "You are not part of this service request."}, status=403)
+        
+        # Check if service is in progress or completed
+        if sr.status not in ["in_progress", "completed"]:
+            return Response({"detail": "Service must be in progress or completed to update hours."}, status=400)
+        
+        actual_hours = request.data.get("actual_hours")
+        if actual_hours is None:
+            return Response({"detail": "actual_hours is required."}, status=400)
+        
+        try:
+            from decimal import Decimal
+            actual_hours = Decimal(str(actual_hours))
+            if actual_hours < 0:
+                return Response({"detail": "Hours cannot be negative."}, status=400)
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid hours value."}, status=400)
+        
+        # Reset approvals when hours are updated
+        sr.actual_hours = actual_hours
+        sr.actual_hours_owner_approved = False
+        sr.actual_hours_requester_approved = False
+        
+        sr.save()
+        return Response(ServiceRequestSerializer(sr).data)
+    
+    @action(detail=True, methods=["post"])
+    def approve_hours(self, request, pk=None):
+        """Approve actual hours - both parties must approve"""
+        sr = self.get_object()
+        user = request.user
+        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
+        
+        # Check if user is part of this request
+        if user.id != service_owner_id and user.id != sr.requester.id:
+            return Response({"detail": "You are not part of this service request."}, status=403)
+        
+        # Check if actual hours is set
+        if not sr.actual_hours:
+            return Response({"detail": "Actual hours must be set first."}, status=400)
+        
+        # Set approval based on user role
+        if user.id == service_owner_id:
+            sr.actual_hours_owner_approved = True
+        elif user.id == sr.requester.id:
+            sr.actual_hours_requester_approved = True
+        
+        sr.save()
+        return Response(ServiceRequestSerializer(sr).data)
+    
+    @action(detail=True, methods=["post"])
+    def complete(self, request, pk=None):
+        """Mark service as completed - both parties must approve"""
+        sr = self.get_object()
+        user = request.user
+        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
+        
+        # Check if user is part of this request
+        if user.id != service_owner_id and user.id != sr.requester.id:
+            return Response({"detail": "You are not part of this service request."}, status=403)
+        
+        # Check if service is in progress
+        if sr.status != "in_progress":
+            return Response({"detail": "Service must be in progress to complete."}, status=400)
+        
+        # Use actual_hours if set and approved, otherwise use estimated_hours
+        from decimal import Decimal
+        if sr.actual_hours and sr.actual_hours_owner_approved and sr.actual_hours_requester_approved:
+            service_hours = sr.actual_hours
+        else:
+            service_hours = Decimal(str(sr.service.estimated_hours or 0))
+        
+        if service_hours <= 0:
+            return Response({"detail": "Service hours must be greater than 0."}, status=400)
+        
+        # Mark as completed (both parties need to call this)
+        # For simplicity, we'll mark it as completed when either party calls it
+        # In a more complex system, you might want separate completion flags
+        sr.status = "completed"
+        sr.save()
+        
+        # Transfer time
+        requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
+        owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
+        
+        # Check if requester has enough balance
+        if requester_account.balance >= service_hours:
+            # Debit from requester (service alan kişiden düş)
+            requester_account.balance -= service_hours
+            requester_account.total_spent += service_hours
+            requester_account.save()
+            
+            # Credit to owner (hizmet veren kişiye ekle)
+            owner_account.balance += service_hours
+            owner_account.total_earned += service_hours
+            owner_account.save()
+            
+            # Create transactions
+            TimeTransaction.objects.create(
+                account=requester_account,
+                transaction_type="debit",
+                amount=service_hours,
+                status="completed",
+                description=f"Payment for service: {sr.service.title}",
+                related_service=sr.service,
+                processed_by=user,
+            )
+            TimeTransaction.objects.create(
+                account=owner_account,
+                transaction_type="credit",
+                amount=service_hours,
+                status="completed",
+                description=f"Earned from service: {sr.service.title}",
+                related_service=sr.service,
+                processed_by=user,
+            )
+        else:
+            return Response(
+                {"detail": f"Requester does not have enough balance. Required: {service_hours}h, Available: {requester_account.balance}h"},
+                status=400
+            )
+        
         return Response(ServiceRequestSerializer(sr).data)
 
 
 class MeView(generics.RetrieveUpdateAPIView):
+    """Authenticated user's own profile"""
+
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
         profile, _ = Profile.objects.get_or_create(user=self.request.user)
         return profile
+
+
+class ProfileViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only access to user profiles.
+    Used to show other users' public profiles in chats and request lists.
+    """
+
+    serializer_class = ProfileSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Profile.objects.select_related("user").all()
 
 
 @api_view(["POST"])
@@ -321,7 +473,7 @@ def register(request):
         # Create time account with default 3 hours balance
         TimeAccount.objects.get_or_create(
             user=user,
-            defaults={'balance': 3.00}
+            defaults={"balance": 3.00},
         )
         return Response(
             {"message": "User created successfully", "user_id": user.id},
@@ -400,8 +552,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = (
-            Conversation.objects.prefetch_related("participants", "messages")
-            .prefetch_related("related_service")
+            Conversation.objects
+            .select_related("related_service")
+            .prefetch_related("participants", "messages")
             .filter(participants=user)
             .order_by("-updated_at")
         )

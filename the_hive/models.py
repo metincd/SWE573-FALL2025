@@ -172,6 +172,15 @@ class Service(models.Model):
         blank=True,
         help_text=_("Estimated time to complete this service"),
     )
+    discussion_thread = models.OneToOneField(
+        "Thread",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="service_discussion",
+        verbose_name=_("discussion thread"),
+        help_text=_("Public discussion thread for this service"),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -195,6 +204,7 @@ class ServiceRequest(models.Model):
         ("pending", _("Pending")),
         ("accepted", _("Accepted")),
         ("rejected", _("Rejected")),
+        ("in_progress", _("In Progress")),
         ("completed", _("Completed")),
         ("cancelled", _("Cancelled")),
     ]
@@ -219,6 +229,46 @@ class ServiceRequest(models.Model):
     )
     response_note = models.TextField(
         _("response note"), blank=True, help_text=_("Owner's response to the request")
+    )
+    conversation = models.OneToOneField(
+        "Conversation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="service_request",
+        verbose_name=_("conversation"),
+        help_text=_("Private conversation between requester and owner"),
+    )
+    # Two-party approval for starting service
+    owner_approved = models.BooleanField(
+        _("owner approved"),
+        default=False,
+        help_text=_("Service owner has approved to start"),
+    )
+    requester_approved = models.BooleanField(
+        _("requester approved"),
+        default=False,
+        help_text=_("Requester has approved to start"),
+    )
+    # Actual hours worked (may differ from estimated)
+    actual_hours = models.DecimalField(
+        _("actual hours"),
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_("Actual hours worked (can be updated after completion)"),
+    )
+    # Two-party approval for actual hours
+    actual_hours_owner_approved = models.BooleanField(
+        _("owner approved hours"),
+        default=False,
+        help_text=_("Service owner has approved the actual hours"),
+    )
+    actual_hours_requester_approved = models.BooleanField(
+        _("requester approved hours"),
+        default=False,
+        help_text=_("Requester has approved the actual hours"),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

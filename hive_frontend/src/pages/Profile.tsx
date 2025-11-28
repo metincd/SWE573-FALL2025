@@ -290,6 +290,14 @@ export default function Profile() {
                     {request.message && (
                       <p className="text-sm text-gray-700 mb-2">{request.message}</p>
                     )}
+                    {request.conversation && (
+                      <button
+                        onClick={() => navigate(`/chat/${request.conversation}`)}
+                        className="text-sm text-blue-600 hover:text-blue-800 underline mb-2"
+                      >
+                        Open Chat →
+                      </button>
+                    )}
                     {request.status === 'pending' && (
                       <div className="flex gap-2 mt-2">
                         <button
@@ -392,7 +400,15 @@ export default function Profile() {
                       </span>
                     </div>
                     {request.message && (
-                      <p className="text-sm text-gray-700">{request.message}</p>
+                      <p className="text-sm text-gray-700 mb-2">{request.message}</p>
+                    )}
+                    {request.conversation && (
+                      <button
+                        onClick={() => navigate(`/chat/${request.conversation}`)}
+                        className="text-sm text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Open Chat →
+                      </button>
                     )}
                   </div>
                 ))}
