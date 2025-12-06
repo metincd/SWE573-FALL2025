@@ -321,7 +321,11 @@ export default function CreateService() {
     }
   }, [])
 
-  const toggleTag = (tagSlug: string) => {
+  const toggleTag = (tagSlug: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault()
+      e.stopPropagation()
+    }
     setFormData((prev) => ({
       ...prev,
       tags: prev.tags.includes(tagSlug)
@@ -339,6 +343,13 @@ export default function CreateService() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+    
+    const target = e.target as HTMLElement
+    if (target.closest('button[type="button"]') && target.closest('.flex.flex-wrap.gap-2')) {
+      return
+    }
+    
     setError('')
 
     if (!formData.title || !formData.description) {
@@ -353,7 +364,6 @@ export default function CreateService() {
       estimated_hours: formData.estimated_hours,
     }
 
-    // Only include tags if there are any
     if (formData.tags.length > 0) {
       submitData.tags = formData.tags
     }
@@ -398,7 +408,15 @@ export default function CreateService() {
       <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm">
         <h1 className="text-2xl font-bold mb-6">Create New Service</h1>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form 
+          onSubmit={handleSubmit} 
+          className="space-y-4"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.target as HTMLElement).closest('.flex.flex-wrap.gap-2')) {
+              e.preventDefault()
+            }
+          }}
+        >
           {/* Service Type */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -555,19 +573,25 @@ export default function CreateService() {
           </div>
 
           {/* Tags */}
-          <div>
+          <div onClick={(e) => e?.stopPropagation()}>
             <label className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
             
             {/* Popular Tags */}
             {popularTagsData && popularTagsData.length > 0 && (
-              <div className="mb-4">
+              <div className="mb-4" onClick={(e) => e?.stopPropagation()}>
                 <p className="text-xs text-gray-500 mb-2">Popular Tags:</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" onClick={(e) => e?.stopPropagation()}>
                   {popularTagsData.map((tag: any) => (
                     <Pill
                       key={tag.slug || tag.id}
                       active={formData.tags.includes(tag.slug || tag.id)}
-                      onClick={() => toggleTag(tag.slug || tag.id)}
+                      onClick={(e) => {
+                        if (e) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }
+                        toggleTag(tag.slug || tag.id, e)
+                      }}
                     >
                       #{tag.slug || tag.name}
                       {tag.service_count > 0 && (
@@ -581,14 +605,20 @@ export default function CreateService() {
 
             {/* All Tags */}
             {tagsData && tagsData.results && tagsData.results.length > 0 && (
-              <div className="mb-4">
+              <div className="mb-4" onClick={(e) => e?.stopPropagation()}>
                 <p className="text-xs text-gray-500 mb-2">All Tags:</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2" onClick={(e) => e?.stopPropagation()}>
                   {tagsData.results.map((tag: any) => (
                     <Pill
                       key={tag.slug || tag.id}
                       active={formData.tags.includes(tag.slug || tag.id)}
-                      onClick={() => toggleTag(tag.slug || tag.id)}
+                      onClick={(e) => {
+                        if (e) {
+                          e.preventDefault()
+                          e.stopPropagation()
+                        }
+                        toggleTag(tag.slug || tag.id, e)
+                      }}
                     >
                       #{tag.slug || tag.name}
                     </Pill>
