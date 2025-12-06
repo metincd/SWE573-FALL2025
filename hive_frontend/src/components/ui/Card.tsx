@@ -7,6 +7,7 @@ interface CardProps {
   tags?: string[]
   cta?: string
   onClick?: () => void
+  onTagClick?: (tag: string) => void
 }
 
 export default function Card({
@@ -18,6 +19,7 @@ export default function Card({
   tags = [],
   cta,
   onClick,
+  onTagClick,
 }: CardProps) {
   return (
     <div className="rounded-2xl border border-gray-200 bg-white/80 backdrop-blur shadow-sm p-4 flex flex-col gap-3">
@@ -43,7 +45,15 @@ export default function Card({
           {tags.map((t) => (
             <span
               key={t}
-              className="px-2 py-0.5 text-xs rounded-full border border-gray-300 bg-white/70"
+              onClick={(e) => {
+                e.stopPropagation()
+                if (onTagClick) {
+                  onTagClick(t)
+                }
+              }}
+              className={`px-2 py-0.5 text-xs rounded-full border border-gray-300 bg-white/70 ${
+                onTagClick ? 'cursor-pointer hover:bg-gray-100 hover:border-gray-400' : ''
+              }`}
             >
               #{t}
             </span>

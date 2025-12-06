@@ -1,14 +1,18 @@
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import Card from '../components/ui/Card'
 
 export default function Services() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const tagFilter = searchParams.get('tag')
+
   const { data, isLoading, error } = useQuery({
-    queryKey: ['services'],
+    queryKey: ['services', tagFilter],
     queryFn: async () => {
-      const response = await api.get('/services/')
+      const url = tagFilter ? `/services/?tag=${encodeURIComponent(tagFilter)}` : '/services/'
+      const response = await api.get(url)
       return response.data
     },
   })
@@ -34,11 +38,30 @@ export default function Services() {
     )
   }
 
+  const handleTagClick = (tagSlug: string) => {
+    navigate(`/services?tag=${encodeURIComponent(tagSlug)}`)
+  }
+
   return (
     <div className="max-w-6xl mx-auto w-full">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold mb-2">All Services</h1>
-        <p className="text-sm text-gray-600">Services offered and needed by community members</p>
+        <h1 className="text-2xl font-bold mb-2">
+          {tagFilter ? `Services tagged: #${tagFilter}` : 'All Services'}
+        </h1>
+        <p className="text-sm text-gray-600">
+          {tagFilter 
+            ? `Services with the tag "${tagFilter}"`
+            : 'Services offered and needed by community members'
+          }
+        </p>
+        {tagFilter && (
+          <button
+            onClick={() => navigate('/services')}
+            className="mt-2 text-sm text-gray-600 hover:text-gray-900 underline"
+          >
+            ← Clear filter
+          </button>
+        )}
       </div>
 
       {data?.results?.length === 0 ? (
@@ -59,6 +82,7 @@ export default function Services() {
               tags={(service.tags || []).map((t: any) =>
                 typeof t === 'string' ? t : t.slug || t.name || ''
               )}
+              onTagClick={handleTagClick}
               cta="View Details"
               onClick={() => navigate(`/services/${service.id}`)}
             />

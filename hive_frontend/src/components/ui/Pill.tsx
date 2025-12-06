@@ -8,6 +8,7 @@ interface PillProps {
 export default function Pill({ children, active = false, onClick, className = "" }: PillProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`px-3 py-1 rounded-full border text-sm transition ${
         active

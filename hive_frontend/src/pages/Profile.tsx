@@ -244,6 +244,7 @@ export default function Profile() {
                 tags={(service.tags || []).map((t: any) =>
                   typeof t === 'string' ? t : t.slug || t.name || ''
                 )}
+                onTagClick={(tag) => navigate(`/services?tag=${encodeURIComponent(tag)}`)}
                 cta="View Details"
                 onClick={() => navigate(`/services/${service.id}`)}
               />

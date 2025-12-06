@@ -49,6 +49,7 @@ export default function CreateService() {
     tags: [] as string[],
   })
   const [error, setError] = useState('')
+  const [tagError, setTagError] = useState('')
   const [addressError, setAddressError] = useState('')
   const [addressSuggestions, setAddressSuggestions] = useState<any[]>([])
   const [showSuggestions, setShowSuggestions] = useState(false)
@@ -64,6 +65,106 @@ export default function CreateService() {
       return response.data
     },
     enabled: isAuthenticated,
+  })
+
+  // Fetch popular tags
+  const { data: popularTagsData } = useQuery({
+    queryKey: ['tags', 'popular'],
+    queryFn: async () => {
+      const response = await api.get('/tags/popular/')
+      return response.data
+    },
+    enabled: isAuthenticated,
+  })
+
+  const [newTagName, setNewTagName] = useState('')
+  const [newTagWikidataId, setNewTagWikidataId] = useState('')
+  const [showNewTagForm, setShowNewTagForm] = useState(false)
+  const [wikidataSearchResults, setWikidataSearchResults] = useState<any[]>([])
+  const [isSearchingWikidata, setIsSearchingWikidata] = useState(false)
+  const [showWikidataResults, setShowWikidataResults] = useState(false)
+  const wikidataSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wikidataResultsRef = useRef<HTMLDivElement>(null)
+
+  const searchWikidata = async (query: string) => {
+    if (!query || query.length < 2) {
+      setWikidataSearchResults([])
+      setShowWikidataResults(false)
+      return
+    }
+
+    setIsSearchingWikidata(true)
+    try {
+      const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(query)}&language=en&format=json&origin=*`
+      const response = await fetch(url)
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.search) {
+          setWikidataSearchResults(data.search.slice(0, 5))
+          setShowWikidataResults(true)
+        } else {
+          setWikidataSearchResults([])
+          setShowWikidataResults(false)
+        }
+      }
+    } catch (err) {
+      console.error('Wikidata search error:', err)
+      setWikidataSearchResults([])
+      setShowWikidataResults(false)
+    } finally {
+      setIsSearchingWikidata(false)
+    }
+  }
+
+  const debounceWikidataSearch = (query: string) => {
+    if (wikidataSearchTimeoutRef.current) {
+      clearTimeout(wikidataSearchTimeoutRef.current)
+    }
+    wikidataSearchTimeoutRef.current = setTimeout(() => {
+      searchWikidata(query)
+    }, 500) // 500ms debounce
+  }
+
+  const selectWikidataEntity = (entity: any) => {
+    setNewTagWikidataId(entity.id)
+    setNewTagName(entity.label || newTagName)
+    setShowWikidataResults(false)
+  }
+
+  const createTagMutation = useMutation({
+    mutationFn: async (data: { name: string; wikidata_id?: string }) => {
+      const response = await api.post('/tags/', data)
+      return response.data
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['tags'] })
+      queryClient.invalidateQueries({ queryKey: ['tags', 'popular'] })
+      toggleTag(data.slug)
+      setNewTagName('')
+      setNewTagWikidataId('')
+      setShowNewTagForm(false)
+      setWikidataSearchResults([])
+      setShowWikidataResults(false)
+      setTagError('')
+    },
+    onError: (error: any) => {
+      console.error('Create tag error:', error.response?.data)
+      const errorMessage = error.response?.data
+      if (typeof errorMessage === 'object') {
+        const errors = Object.entries(errorMessage)
+          .map(([key, value]) => {
+            if (Array.isArray(value)) {
+              return `${key}: ${value.join(', ')}`
+            }
+            return `${key}: ${value}`
+          })
+          .join('\n')
+        setTagError(errors || 'Failed to create tag')
+      } else {
+        setTagError(error.response?.data?.detail || error.response?.data?.message || 'Failed to create tag')
+      }
+    },
   })
 
   const createServiceMutation = useMutation({
@@ -203,11 +304,20 @@ export default function CreateService() {
       ) {
         setShowSuggestions(false)
       }
+      if (
+        wikidataResultsRef.current &&
+        !wikidataResultsRef.current.contains(event.target as Node)
+      ) {
+        setShowWikidataResults(false)
+      }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
+      if (wikidataSearchTimeoutRef.current) {
+        clearTimeout(wikidataSearchTimeoutRef.current)
+      }
     }
   }, [])
 
@@ -249,12 +359,10 @@ export default function CreateService() {
     }
 
     if (formData.latitude && formData.longitude) {
-      // Round to 6 decimal places to match backend validation
       submitData.latitude = parseFloat(parseFloat(formData.latitude).toFixed(6))
       submitData.longitude = parseFloat(parseFloat(formData.longitude).toFixed(6))
     }
 
-    // Include address if provided
     if (formData.address && formData.address.trim()) {
       submitData.address = formData.address.trim()
     }
@@ -447,22 +555,182 @@ export default function CreateService() {
           </div>
 
           {/* Tags */}
-          {tagsData && tagsData.results && tagsData.results.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
-              <div className="flex flex-wrap gap-2">
-                {tagsData.results.map((tag: any) => (
-                  <Pill
-                    key={tag.slug || tag.id}
-                    active={formData.tags.includes(tag.slug || tag.id)}
-                    onClick={() => toggleTag(tag.slug || tag.id)}
-                  >
-                    #{tag.slug || tag.name}
-                  </Pill>
-                ))}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
+            
+            {/* Popular Tags */}
+            {popularTagsData && popularTagsData.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs text-gray-500 mb-2">Popular Tags:</p>
+                <div className="flex flex-wrap gap-2">
+                  {popularTagsData.map((tag: any) => (
+                    <Pill
+                      key={tag.slug || tag.id}
+                      active={formData.tags.includes(tag.slug || tag.id)}
+                      onClick={() => toggleTag(tag.slug || tag.id)}
+                    >
+                      #{tag.slug || tag.name}
+                      {tag.service_count > 0 && (
+                        <span className="ml-1 text-xs opacity-70">({tag.service_count})</span>
+                      )}
+                    </Pill>
+                  ))}
+                </div>
               </div>
+            )}
+
+            {/* All Tags */}
+            {tagsData && tagsData.results && tagsData.results.length > 0 && (
+              <div className="mb-4">
+                <p className="text-xs text-gray-500 mb-2">All Tags:</p>
+                <div className="flex flex-wrap gap-2">
+                  {tagsData.results.map((tag: any) => (
+                    <Pill
+                      key={tag.slug || tag.id}
+                      active={formData.tags.includes(tag.slug || tag.id)}
+                      onClick={() => toggleTag(tag.slug || tag.id)}
+                    >
+                      #{tag.slug || tag.name}
+                    </Pill>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Create New Tag */}
+            <div className="mt-4">
+              {!showNewTagForm ? (
+                <button
+                  type="button"
+                  onClick={() => setShowNewTagForm(true)}
+                  className="text-sm text-gray-600 hover:text-gray-900 underline"
+                >
+                  + Create New Tag
+                </button>
+              ) : (
+                <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Create New Tag</p>
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <TextInput
+                        label="Tag Name"
+                        name="newTagName"
+                        value={newTagName}
+                        onChange={(e) => {
+                          setNewTagName(e.target.value)
+                          debounceWikidataSearch(e.target.value)
+                        }}
+                        placeholder="e.g., Cooking, Tutoring..."
+                        required
+                      />
+                      {/* Wikidata Search Results */}
+                      {showWikidataResults && wikidataSearchResults.length > 0 && (
+                        <div
+                          ref={wikidataResultsRef}
+                          className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto"
+                        >
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b border-gray-200">
+                            Wikidata Results:
+                          </div>
+                          {wikidataSearchResults.map((entity: any) => (
+                            <button
+                              key={entity.id}
+                              type="button"
+                              onClick={() => selectWikidataEntity(entity)}
+                              className="w-full text-left px-4 py-2 hover:bg-gray-100 border-b border-gray-200 last:border-b-0"
+                            >
+                              <div className="font-medium text-sm">{entity.label}</div>
+                              {entity.description && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {entity.description}
+                                </div>
+                              )}
+                              <div className="text-xs text-gray-400 mt-1">
+                                {entity.id}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {isSearchingWikidata && (
+                        <p className="text-xs text-gray-500 mt-1">Searching Wikidata...</p>
+                      )}
+                    </div>
+                    {newTagWikidataId && (
+                      <div className="text-xs text-green-600 bg-green-50 p-2 rounded">
+                        ✓ Wikidata selected: {newTagWikidataId}
+                        <a
+                          href={`https://www.wikidata.org/wiki/${newTagWikidataId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 underline"
+                        >
+                          View on Wikidata
+                        </a>
+                      </div>
+                    )}
+                    {tagError && (
+                      <div className="text-sm text-red-600 whitespace-pre-line bg-red-50 p-3 rounded-lg border border-red-200">
+                        {tagError}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (newTagName.trim()) {
+                            createTagMutation.mutate({
+                              name: newTagName.trim(),
+                              wikidata_id: newTagWikidataId.trim() || undefined,
+                            })
+                          }
+                        }}
+                        disabled={createTagMutation.isPending || !newTagName.trim()}
+                        className="px-4 py-2 rounded-lg bg-black text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50"
+                      >
+                        {createTagMutation.isPending ? 'Creating...' : 'Create Tag'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNewTagForm(false)
+                          setNewTagName('')
+                          setNewTagWikidataId('')
+                          setWikidataSearchResults([])
+                          setShowWikidataResults(false)
+                          setTagError('')
+                        }}
+                        className="px-4 py-2 rounded-lg border border-gray-300 text-sm font-semibold hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Selected Tags Display */}
+            {formData.tags.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs text-gray-500 mb-2">Selected Tags:</p>
+                <div className="flex flex-wrap gap-2">
+                  {formData.tags.map((tagSlug: string) => {
+                    const tag = tagsData?.results?.find((t: any) => (t.slug || t.id) === tagSlug) ||
+                                 popularTagsData?.find((t: any) => (t.slug || t.id) === tagSlug)
+                    return (
+                      <span
+                        key={tagSlug}
+                        className="px-2 py-1 text-xs rounded-full bg-black text-white"
+                      >
+                        #{tag?.slug || tag?.name || tagSlug}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className="text-sm text-red-600 whitespace-pre-line bg-red-50 p-3 rounded-lg border border-red-200">
