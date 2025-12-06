@@ -78,6 +78,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 class ProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     user_id = serializers.IntegerField(source="user.id", read_only=True)
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Profile
@@ -87,6 +88,7 @@ class ProfileSerializer(serializers.ModelSerializer):
             "user_id",
             "display_name",
             "bio",
+            "avatar",
             "avatar_url",
             "latitude",
             "longitude",
@@ -95,6 +97,26 @@ class ProfileSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "user", "user_id", "created_at", "updated_at"]
+    
+    def get_avatar_url(self, obj):
+        """Return avatar URL - prefer uploaded file over URL field"""
+        if obj.avatar:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.avatar.url)
+            return obj.avatar.url
+        return obj.avatar_url or None
+    
+    def validate_avatar(self, value):
+        """Validate avatar file"""
+        if value:
+            # Check file size (max 5MB)
+            if value.size > 5 * 1024 * 1024:
+                raise serializers.ValidationError("Image size should be less than 5MB")
+            # Check file type
+            if not value.content_type.startswith('image/'):
+                raise serializers.ValidationError("File must be an image")
+        return value
 
 
 class TagSerializer(serializers.ModelSerializer):

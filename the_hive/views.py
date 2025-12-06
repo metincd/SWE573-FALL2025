@@ -475,6 +475,32 @@ class MeView(generics.RetrieveUpdateAPIView):
     def get_object(self):
         profile, _ = Profile.objects.get_or_create(user=self.request.user)
         return profile
+    
+    def get_serializer_context(self):
+        """Add request to serializer context for absolute URLs"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+    
+    def update(self, request, *args, **kwargs):
+        """Handle file upload for avatar"""
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        data = {
+            'display_name': request.data.get('display_name', ''),
+            'bio': request.data.get('bio', ''),
+        }
+        
+        if 'avatar' in request.FILES:
+            data['avatar'] = request.FILES['avatar']
+        
+        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        self.perform_update(serializer)
+        
+        return Response(serializer.data)
 
 
 class ProfileViewSet(viewsets.ReadOnlyModelViewSet):
@@ -488,6 +514,12 @@ class ProfileViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         return Profile.objects.select_related("user").all()
+    
+    def get_serializer_context(self):
+        """Add request to serializer context for absolute URLs"""
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
 
 @api_view(["POST"])

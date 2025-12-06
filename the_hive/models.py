@@ -83,6 +83,10 @@ class Profile(models.Model):
         max_length=120, blank=True, help_text=_("Public name shown to others.")
     )
     bio = models.TextField(blank=True, validators=[MinLengthValidator(0)])
+    avatar = models.ImageField(
+        _("avatar"), upload_to="avatars/", blank=True, null=True,
+        help_text=_("Profile picture")
+    )
     avatar_url = models.URLField(blank=True)
     latitude = models.DecimalField(
         max_digits=9, decimal_places=6, null=True, blank=True
