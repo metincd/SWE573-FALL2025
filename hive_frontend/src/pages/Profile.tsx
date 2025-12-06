@@ -15,9 +15,10 @@ export default function Profile() {
     display_name: '',
     bio: '',
   })
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
 
-  // Fetch user profile
-  const { data: profileData, isLoading: profileLoading } = useQuery({
+  const { data: profileData, isLoading: profileLoading, refetch: refetchProfile } = useQuery({
     queryKey: ['profile', 'me'],
     queryFn: async () => {
       const response = await api.get('/me/')
@@ -26,17 +27,40 @@ export default function Profile() {
     enabled: isAuthenticated,
   })
 
-  // Update editData when profileData changes
   React.useEffect(() => {
     if (profileData) {
       setEditData({
         display_name: profileData.display_name || '',
         bio: profileData.bio || '',
       })
+      if (profileData.avatar_url) {
+        setAvatarPreview(profileData.avatar_url)
+      }
     }
   }, [profileData])
 
-  // Fetch time account
+  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file')
+        return
+      }
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB')
+        return
+      }
+      setAvatarFile(file)
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setAvatarPreview(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
   const { data: timeAccountData } = useQuery({
     queryKey: ['time-account'],
     queryFn: async () => {
@@ -46,7 +70,6 @@ export default function Profile() {
     enabled: isAuthenticated,
   })
 
-  // Fetch user's services
   const { data: myServicesData } = useQuery({
     queryKey: ['services', 'my'],
     queryFn: async () => {
@@ -57,7 +80,6 @@ export default function Profile() {
     enabled: isAuthenticated && !!user,
   })
 
-  // Fetch service requests (both sent and received)
   const { data: requestsData, refetch: refetchRequests } = useQuery({
     queryKey: ['service-requests', 'my'],
     queryFn: async () => {
@@ -69,12 +91,29 @@ export default function Profile() {
 
   const handleUpdateProfile = async () => {
     try {
-      await api.patch('/me/', editData)
+      const formData = new FormData()
+      formData.append('display_name', editData.display_name)
+      formData.append('bio', editData.bio)
+      
+      if (avatarFile) {
+        formData.append('avatar', avatarFile)
+      }
+      
+      await api.patch('/me/', formData)
       setIsEditing(false)
-      // Invalidate to refetch
-      window.location.reload()
+      setAvatarFile(null)
+      setAvatarPreview(null)
+      await refetchProfile()
+      queryClient.invalidateQueries({ queryKey: ['profile', 'me'] })
     } catch (error: any) {
-      alert(error.response?.data?.detail || 'Failed to update profile')
+      console.error('Profile update error:', error)
+      console.error('Error response:', error.response?.data)
+      const errorMessage = error.response?.data?.detail || 
+                          error.response?.data?.avatar?.[0] ||
+                          error.response?.data?.message ||
+                          JSON.stringify(error.response?.data) ||
+                          'Failed to update profile'
+      alert(`Error: ${errorMessage}`)
     }
   }
 
@@ -107,14 +146,12 @@ export default function Profile() {
   const myServices = myServicesData || []
   const requests = requestsData?.results || []
 
-  // Separate requests: sent vs received
   const sentRequests = requests.filter((r: any) => {
     const requesterId = typeof r.requester === 'object' ? r.requester?.id : r.requester
     return requesterId === user?.id
   })
   
   const receivedRequests = requests.filter((r: any) => {
-    // Service should now be an object with owner nested
     if (typeof r.service === 'object' && r.service?.owner) {
       const ownerId = typeof r.service.owner === 'object' ? r.service.owner.id : r.service.owner
       const matches = ownerId === user?.id
@@ -123,14 +160,12 @@ export default function Profile() {
       }
       return matches
     }
-    // Debug: log if service structure is unexpected
     if (r.service) {
       console.log('Service structure:', r.service, 'User ID:', user?.id)
     }
     return false
   })
 
-  // Debug logs
   console.log('All requests:', requests)
   console.log('User ID:', user?.id)
   console.log('Received requests count:', receivedRequests.length)
@@ -142,15 +177,43 @@ export default function Profile() {
       {/* Profile Info */}
       <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
         <div className="flex items-start justify-between mb-4">
-          <div className="flex-1">
-            <h2 className="text-xl font-bold mb-2">
-              {profile.display_name || user?.full_name || user?.username || 'User'}
-            </h2>
-            <p className="text-gray-600 mb-2">{user?.email}</p>
-            {profile.bio && <p className="text-gray-700">{profile.bio}</p>}
+          <div className="flex items-start gap-4 flex-1">
+            {/* Avatar */}
+            <div className="flex-shrink-0">
+              {profile.avatar_url ? (
+                <img
+                  src={profile.avatar_url}
+                  alt="Profile"
+                  className="w-20 h-20 rounded-full object-cover border-2 border-gray-200"
+                  onError={(e) => {
+                    // Fallback if image fails to load
+                    e.currentTarget.style.display = 'none'
+                  }}
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-300">
+                  <span className="text-2xl font-bold text-gray-500">
+                    {(profile.display_name || user?.full_name || user?.username || 'U')[0].toUpperCase()}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex-1">
+              <h2 className="text-xl font-bold mb-2">
+                {profile.display_name || user?.full_name || user?.username || 'User'}
+              </h2>
+              <p className="text-gray-600 mb-2">{user?.email}</p>
+              {profile.bio && <p className="text-gray-700">{profile.bio}</p>}
+            </div>
           </div>
           <button
-            onClick={() => setIsEditing(!isEditing)}
+            onClick={() => {
+              setIsEditing(!isEditing)
+              if (isEditing) {
+                setAvatarFile(null)
+                setAvatarPreview(null)
+              }
+            }}
             className="px-4 py-2 rounded-xl border border-gray-300 hover:bg-gray-50"
           >
             {isEditing ? 'Cancel' : 'Edit'}
@@ -160,6 +223,86 @@ export default function Profile() {
         {/* Edit Form */}
         {isEditing && (
           <div className="space-y-4 pt-4 border-t">
+            {/* Avatar Upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">Profile Photo</label>
+              <div className="flex items-start gap-6">
+                {/* Avatar Preview */}
+                <div className="flex-shrink-0">
+                  {(avatarPreview || profile.avatar_url) ? (
+                    <div className="relative">
+                      <img
+                        src={avatarPreview || profile.avatar_url}
+                        alt="Profile preview"
+                        className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none'
+                        }}
+                      />
+                      {avatarFile && (
+                        <div className="absolute -bottom-1 -right-1 bg-green-500 rounded-full p-1">
+                          <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-300">
+                      <span className="text-3xl font-bold text-gray-500">
+                        {(editData.display_name || user?.full_name || user?.username || 'U')[0].toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* File Upload Section */}
+                <div className="flex-1">
+                  <label className="block">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                      id="avatar-upload"
+                    />
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-3">
+                        <label
+                          htmlFor="avatar-upload"
+                          className="px-4 py-2 rounded-lg bg-black text-white text-sm font-semibold hover:opacity-90 cursor-pointer transition"
+                        >
+                          Choose Photo
+                        </label>
+                        {avatarFile && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAvatarFile(null)
+                              setAvatarPreview(null)
+                              const input = document.getElementById('avatar-upload') as HTMLInputElement
+                              if (input) input.value = ''
+                            }}
+                            className="px-3 py-2 rounded-lg border border-gray-300 text-sm font-semibold hover:bg-gray-50"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      {avatarFile ? (
+                        <p className="text-sm text-green-600">
+                          ✓ {avatarFile.name} ({(avatarFile.size / 1024 / 1024).toFixed(2)} MB)
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          JPG, PNG or GIF. Max size 5MB
+                        </p>
+                      )}
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
             <TextInput
               label="Display Name"
               name="display_name"
