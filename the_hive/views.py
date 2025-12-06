@@ -105,6 +105,35 @@ class TagViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "description"]
+    
+    @action(detail=False, methods=["get"])
+    def popular(self, request):
+        """Get popular tags ordered by service count"""
+        from django.db.models import Count
+        popular_tags = Tag.objects.annotate(
+            service_count=Count('services')
+        ).filter(service_count__gt=0).order_by('-service_count')[:20]
+        serializer = self.get_serializer(popular_tags, many=True)
+        return Response(serializer.data)
+    
+    def create(self, request, *args, **kwargs):
+        """Create tag with optional Wikidata integration"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        wikidata_id = serializer.validated_data.get('wikidata_id')
+        if wikidata_id:
+            if not wikidata_id.startswith('Q') or not wikidata_id[1:].isdigit():
+                return Response(
+                    {"wikidata_id": "Invalid Wikidata ID format. Should be like Q12345"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            if not serializer.validated_data.get('wikidata_url'):
+                serializer.validated_data['wikidata_url'] = f"https://www.wikidata.org/wiki/{wikidata_id}"
+        
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 
 class ServiceViewSet(viewsets.ModelViewSet):

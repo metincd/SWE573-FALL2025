@@ -56,17 +56,15 @@ export default function Home() {
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 5
 
-  // Fetch services
   const { data: servicesData, isLoading: servicesLoading } = useQuery({
     queryKey: ['services'],
     queryFn: async () => {
       const response = await api.get('/services/')
       return response.data
     },
-    enabled: true, // Always load
+    enabled: true,
   })
 
-  // Fetch time account (only for authenticated users)
   const { data: timeAccountData, refetch: refetchTimeAccount } = useQuery({
     queryKey: ['time-account'],
     queryFn: async () => {
@@ -76,7 +74,6 @@ export default function Home() {
     enabled: isAuthenticated,
   })
 
-  // Refetch time account when window gains focus (user might have completed a service in another tab)
   useEffect(() => {
     const handleFocus = () => {
       if (isAuthenticated) {
@@ -87,7 +84,6 @@ export default function Home() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [isAuthenticated, refetchTimeAccount])
 
-  // Separate services into offers and needs
   const { offers, needs } = useMemo(() => {
     if (!servicesData?.results) return { offers: [], needs: [] }
 
@@ -257,14 +253,22 @@ export default function Home() {
                           </div>
                           {service.tags && service.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
-                              {service.tags.slice(0, 3).map((tag: any) => (
-                                <span
-                                  key={tag.slug || tag.id || tag}
-                                  className="px-1.5 py-0.5 text-xs rounded border border-gray-300 bg-white/70"
-                                >
-                                  #{typeof tag === 'string' ? tag : tag.slug || tag.name}
-                                </span>
-                              ))}
+                              {service.tags.slice(0, 3).map((tag: any) => {
+                                const tagSlug = typeof tag === 'string' ? tag : tag.slug || tag.id
+                                const tagName = typeof tag === 'string' ? tag : tag.slug || tag.name
+                                return (
+                                  <span
+                                    key={tagSlug}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      navigate(`/services?tag=${encodeURIComponent(tagSlug)}`)
+                                    }}
+                                    className="px-1.5 py-0.5 text-xs rounded border border-gray-300 bg-white/70 hover:bg-gray-100 cursor-pointer"
+                                  >
+                                    #{tagName}
+                                  </span>
+                                )
+                              })}
                               {service.tags.length > 3 && (
                                 <span className="px-1.5 py-0.5 text-xs text-gray-500">
                                   +{service.tags.length - 3} more
@@ -332,6 +336,7 @@ export default function Home() {
                   tags={(item.tags || []).map((t: any) =>
                     typeof t === 'string' ? t : t.slug || t.name || ''
                   )}
+                  onTagClick={(tag) => navigate(`/services?tag=${encodeURIComponent(tag)}`)}
                   cta={(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Request' : 'Help'}
                   onClick={() => navigate(`/services/${item.id}`)}
                 />

@@ -110,6 +110,14 @@ class Tag(models.Model):
     name = models.CharField(_("tag name"), max_length=50, unique=True)
     slug = models.SlugField(_("slug"), max_length=50, unique=True)
     description = models.TextField(_("description"), blank=True)
+    wikidata_id = models.CharField(
+        _("wikidata id"), max_length=20, blank=True, null=True,
+        help_text=_("Wikidata Q identifier (e.g., Q12345)")
+    )
+    wikidata_url = models.URLField(
+        _("wikidata url"), blank=True, null=True,
+        help_text=_("Full URL to Wikidata page")
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -119,6 +127,7 @@ class Tag(models.Model):
         indexes = [
             models.Index(fields=["slug"]),
             models.Index(fields=["created_at"]),
+            models.Index(fields=["wikidata_id"]),
         ]
 
     def __str__(self) -> str:
@@ -127,6 +136,8 @@ class Tag(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.name)
+        if self.wikidata_id and not self.wikidata_url:
+            self.wikidata_url = f"https://www.wikidata.org/wiki/{self.wikidata_id}"
         super().save(*args, **kwargs)
 
 

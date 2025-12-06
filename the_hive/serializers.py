@@ -98,10 +98,16 @@ class ProfileSerializer(serializers.ModelSerializer):
 
 
 class TagSerializer(serializers.ModelSerializer):
+    service_count = serializers.SerializerMethodField()
+    
     class Meta:
         model = Tag
-        fields = ["id", "name", "slug", "description", "created_at"]
-        read_only_fields = ["id", "slug", "created_at"]
+        fields = ["id", "name", "slug", "description", "wikidata_id", "wikidata_url", "service_count", "created_at"]
+        read_only_fields = ["id", "slug", "service_count", "created_at"]
+    
+    def get_service_count(self, obj):
+        """Get number of services using this tag"""
+        return obj.services.count()
 
 
 class ServiceSerializer(serializers.ModelSerializer):

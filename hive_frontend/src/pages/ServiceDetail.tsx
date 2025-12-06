@@ -266,6 +266,42 @@ export default function ServiceDetail() {
             </div>
             <h1 className="text-3xl font-bold mb-2">{service.title}</h1>
             <p className="text-gray-600 mb-4">{service.description}</p>
+            
+            {/* Tags - Below Description */}
+            {service.tags && service.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                {service.tags.map((tag: any) => {
+                  const tagName = typeof tag === 'string' ? tag : tag.slug || tag.name || tag
+                  const tagSlug = typeof tag === 'string' ? tag : tag.slug || tag.id
+                  const tagUrl = typeof tag === 'object' && tag.wikidata_url ? tag.wikidata_url : null
+                  return (
+                    <span
+                      key={typeof tag === 'string' ? tag : tag.slug || tag.id}
+                      className="px-2 py-1 text-xs rounded-full border border-gray-300 bg-white/70 hover:bg-gray-100 cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigate(`/services?tag=${encodeURIComponent(tagSlug)}`)
+                      }}
+                      title={`View all services with tag: ${tagName}`}
+                    >
+                      #{tagName}
+                      {tagUrl && (
+                        <span
+                          className="ml-1 text-xs opacity-60"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            window.open(tagUrl, '_blank')
+                          }}
+                          title={`View on Wikidata: ${tagUrl}`}
+                        >
+                          🔗
+                        </span>
+                      )}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -282,20 +318,6 @@ export default function ServiceDetail() {
             <p className="font-semibold">⏱️ {service.estimated_hours} hours</p>
           </div>
         </div>
-
-        {/* Tags */}
-        {service.tags && service.tags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            {service.tags.map((tag: any) => (
-              <span
-                key={typeof tag === 'string' ? tag : tag.slug || tag.id}
-                className="px-2 py-1 text-xs rounded-full border border-gray-300 bg-white/70"
-              >
-                #{typeof tag === 'string' ? tag : tag.slug || tag.name || tag}
-              </span>
-            ))}
-          </div>
-        )}
 
         {/* Request Service Button */}
         {existingRequest && (
