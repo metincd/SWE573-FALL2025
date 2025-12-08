@@ -309,9 +309,18 @@ export default function ServiceDetail() {
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <div>
             <p className="text-sm text-gray-500 mb-1">Owner</p>
-            <p className="font-semibold">
-              {service.owner?.full_name || service.owner?.username || 'Unknown'}
-            </p>
+            {service.owner?.id ? (
+              <p
+                onClick={() => navigate(`/users/${service.owner.id}`)}
+                className="font-semibold hover:underline cursor-pointer text-gray-900"
+              >
+                {service.owner?.full_name || service.owner?.username || 'Unknown'}
+              </p>
+            ) : (
+              <p className="font-semibold">
+                {service.owner?.full_name || service.owner?.username || 'Unknown'}
+              </p>
+            )}
           </div>
           <div>
             <p className="text-sm text-gray-500 mb-1">Estimated Hours</p>
@@ -398,9 +407,18 @@ export default function ServiceDetail() {
                 <Popup>
                   <div className="p-2">
                     <h3 className="font-semibold text-sm mb-1">{service.title}</h3>
-                    <p className="text-xs text-gray-600 mb-2">
-                      {service.owner?.full_name || service.owner?.username || 'Unknown'}
-                    </p>
+                    {service.owner?.id ? (
+                      <p
+                        onClick={() => navigate(`/users/${service.owner.id}`)}
+                        className="text-xs text-gray-600 mb-2 hover:underline cursor-pointer font-medium"
+                      >
+                        {service.owner?.full_name || service.owner?.username || 'Unknown'}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-600 mb-2">
+                        {service.owner?.full_name || service.owner?.username || 'Unknown'}
+                      </p>
+                    )}
                     <span className={`px-2 py-0.5 rounded-full text-xs ${
                       isOffer ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
                     }`}>
@@ -429,9 +447,18 @@ export default function ServiceDetail() {
                 <div key={post.id} className="border-b border-gray-200 pb-4 last:border-0">
                   <div className="flex items-start justify-between mb-2">
                     <div>
-                      <p className="font-semibold">
-                        {post.author?.full_name || post.author?.username || 'Anonymous'}
-                      </p>
+                      {post.author?.id ? (
+                        <p
+                          onClick={() => navigate(`/users/${post.author.id}`)}
+                          className="font-semibold hover:underline cursor-pointer text-gray-900"
+                        >
+                          {post.author?.full_name || post.author?.username || 'Anonymous'}
+                        </p>
+                      ) : (
+                        <p className="font-semibold">
+                          {post.author?.full_name || post.author?.username || 'Anonymous'}
+                        </p>
+                      )}
                       <p className="text-sm text-gray-500">
                         {new Date(post.created_at).toLocaleDateString()} at{' '}
                         {new Date(post.created_at).toLocaleTimeString()}
@@ -490,9 +517,18 @@ export default function ServiceDetail() {
               <div key={review.id} className="border-b border-gray-200 pb-4 last:border-0">
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <p className="font-semibold">
-                      {review.reviewer?.full_name || review.reviewer?.username || 'Anonymous'}
-                    </p>
+                    {review.reviewer?.id ? (
+                      <p
+                        onClick={() => navigate(`/users/${review.reviewer.id}`)}
+                        className="font-semibold hover:underline cursor-pointer text-gray-900"
+                      >
+                        {review.reviewer?.full_name || review.reviewer?.username || 'Anonymous'}
+                      </p>
+                    ) : (
+                      <p className="font-semibold">
+                        {review.reviewer?.full_name || review.reviewer?.username || 'Anonymous'}
+                      </p>
+                    )}
                     <p className="text-sm text-gray-500">
                       {new Date(review.created_at).toLocaleDateString()}
                     </p>

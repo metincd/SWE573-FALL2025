@@ -104,7 +104,13 @@ class ProfileSerializer(serializers.ModelSerializer):
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.avatar.url)
-            return obj.avatar.url
+            from django.conf import settings
+            host = settings.ALLOWED_HOSTS[0] if settings.ALLOWED_HOSTS else 'localhost'
+            protocol = 'https' if not settings.DEBUG else 'http'
+            port = '' if settings.DEBUG else ''
+            if settings.DEBUG and host in ['localhost', '127.0.0.1']:
+                return f"{protocol}://{host}:8000{obj.avatar.url}"
+            return f"{protocol}://{host}{obj.avatar.url}"
         return obj.avatar_url or None
     
     def validate_avatar(self, value):

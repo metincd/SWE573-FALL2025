@@ -111,9 +111,18 @@ export default function Messages() {
               >
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <p className="font-semibold">
-                      {otherParticipant?.full_name || otherParticipant?.username || 'Unknown User'}
-                    </p>
+                    {otherParticipant?.id ? (
+                      <p
+                        onClick={() => navigate(`/users/${otherParticipant.id}`)}
+                        className="font-semibold hover:underline cursor-pointer text-gray-900"
+                      >
+                        {otherParticipant?.full_name || otherParticipant?.username || 'Unknown User'}
+                      </p>
+                    ) : (
+                      <p className="font-semibold">
+                        {otherParticipant?.full_name || otherParticipant?.username || 'Unknown User'}
+                      </p>
+                    )}
                     {req?.service?.title && (
                       <p className="text-sm text-gray-600">{req.service.title}</p>
                     )}
@@ -204,6 +213,8 @@ export default function Messages() {
     </div>
   )
 }
+
+
 
 
 

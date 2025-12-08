@@ -210,12 +210,21 @@ export default function Chat() {
         >
           ← Back
         </button>
-        <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3">
           <div>
             <h1 className="text-2xl font-bold">Chat</h1>
-            <p className="text-sm text-gray-600">
-              {otherParticipant?.full_name || otherParticipant?.username || 'Unknown User'}
-            </p>
+            {otherParticipant?.id ? (
+              <p
+                onClick={() => navigate(`/users/${otherParticipant.id}`)}
+                className="text-sm text-gray-600 hover:underline cursor-pointer font-medium"
+              >
+                {otherParticipant?.full_name || otherParticipant?.username || 'Unknown User'}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600">
+                {otherParticipant?.full_name || otherParticipant?.username || 'Unknown User'}
+              </p>
+            )}
           </div>
           {otherParticipant && (
             <button
@@ -381,9 +390,20 @@ export default function Chat() {
                           : 'bg-gray-100 text-gray-900'
                       }`}
                     >
-                      <p className="text-xs font-semibold mb-1">
-                        {isOwn ? 'You' : message.sender?.full_name || message.sender?.username || 'Unknown'}
-                      </p>
+                      {isOwn ? (
+                        <p className="text-xs font-semibold mb-1">You</p>
+                      ) : message.sender?.id ? (
+                        <p
+                          onClick={() => navigate(`/users/${message.sender.id}`)}
+                          className="text-xs font-semibold mb-1 hover:underline cursor-pointer"
+                        >
+                          {message.sender?.full_name || message.sender?.username || 'Unknown'}
+                        </p>
+                      ) : (
+                        <p className="text-xs font-semibold mb-1">
+                          {message.sender?.full_name || message.sender?.username || 'Unknown'}
+                        </p>
+                      )}
                       <p className="whitespace-pre-wrap">{message.body}</p>
                       <p className="text-xs mt-1 opacity-70">
                         {new Date(message.created_at).toLocaleString()}

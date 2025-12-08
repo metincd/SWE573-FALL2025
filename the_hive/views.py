@@ -151,6 +151,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
         service_type = self.request.query_params.get("type")
         status = self.request.query_params.get("status")
         tag = self.request.query_params.get("tag")
+        owner = self.request.query_params.get("owner")
         
         # Geo filtering (lat/lng/radius_km)
         lat = self.request.query_params.get("lat")
@@ -163,6 +164,11 @@ class ServiceViewSet(viewsets.ModelViewSet):
             qs = qs.filter(status=status)
         if tag:
             qs = qs.filter(Q(tags__slug=tag) | Q(tags__name__iexact=tag))
+        if owner:
+            try:
+                qs = qs.filter(owner_id=int(owner))
+            except (ValueError, TypeError):
+                pass
         
         # Geo filter: basit bounding box yaklaşımı
         if lat and lng and radius_km:

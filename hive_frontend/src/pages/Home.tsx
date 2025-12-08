@@ -245,7 +245,19 @@ export default function Home() {
                         <div className="space-y-2 mb-3">
                           <div className="flex items-center text-xs text-gray-600">
                             <span className="font-semibold mr-1">Owner:</span>
-                            <span>{service.owner?.full_name || service.owner?.username || 'Unknown'}</span>
+                            {service.owner?.id ? (
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  navigate(`/users/${service.owner.id}`)
+                                }}
+                                className="hover:underline cursor-pointer font-medium text-gray-800"
+                              >
+                                {service.owner?.full_name || service.owner?.username || 'Unknown'}
+                              </span>
+                            ) : (
+                              <span>{service.owner?.full_name || service.owner?.username || 'Unknown'}</span>
+                            )}
                           </div>
                           <div className="flex items-center text-xs text-gray-600">
                             <span className="font-semibold mr-1">Hours:</span>
@@ -328,15 +340,19 @@ export default function Home() {
                 <Card
                   key={item.id}
                   title={item.title}
-                  subtitle={`${item.owner?.full_name || item.owner?.username || 'User'} • ${
-                    (item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Offering' : 'Seeking'
-                  }`}
+                  subtitle={`${(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Offering' : 'Seeking'}`}
+                  ownerName={item.owner?.full_name || item.owner?.username || 'User'}
                   desc={item.description}
                   hours={item.estimated_hours}
                   tags={(item.tags || []).map((t: any) =>
                     typeof t === 'string' ? t : t.slug || t.name || ''
                   )}
                   onTagClick={(tag) => navigate(`/services?tag=${encodeURIComponent(tag)}`)}
+                  onOwnerClick={(ownerId) => {
+                    console.log('Navigating to user:', ownerId)
+                    navigate(`/users/${ownerId}`)
+                  }}
+                  ownerId={item.owner?.id}
                   cta={(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Request' : 'Help'}
                   onClick={() => navigate(`/services/${item.id}`)}
                 />

@@ -2,11 +2,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { useAuth } from '../contexts/AuthContext'
+import { useState, useMemo } from 'react'
+import Card from '../components/ui/Card'
+import Pill from '../components/ui/Pill'
 
 export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'completed'>('all')
 
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['public-profile', userId],
@@ -16,6 +20,33 @@ export default function UserProfile() {
     },
     enabled: !!userId && isAuthenticated,
   })
+
+  const { data: userServicesData, isLoading: servicesLoading } = useQuery({
+    queryKey: ['user-services', userId],
+    queryFn: async () => {
+      const response = await api.get(`/services/?owner=${userId}`)
+      return response.data.results || []
+    },
+    enabled: !!userId && isAuthenticated,
+  })
+
+  const filteredServices = useMemo(() => {
+    if (!userServicesData) return []
+    if (statusFilter === 'all') return userServicesData
+    return userServicesData.filter((service: any) => 
+      service.status?.toLowerCase() === statusFilter
+    )
+  }, [userServicesData, statusFilter])
+
+  const stats = useMemo(() => {
+    if (!userServicesData) return { total: 0, active: 0, inactive: 0, completed: 0 }
+    return {
+      total: userServicesData.length,
+      active: userServicesData.filter((s: any) => s.status?.toLowerCase() === 'active').length,
+      inactive: userServicesData.filter((s: any) => s.status?.toLowerCase() === 'inactive').length,
+      completed: userServicesData.filter((s: any) => s.status?.toLowerCase() === 'completed').length,
+    }
+  }, [userServicesData])
 
   if (!isAuthenticated) {
     navigate('/login')
@@ -92,6 +123,96 @@ export default function UserProfile() {
             {profile.bio && <p className="text-gray-700 whitespace-pre-wrap">{profile.bio}</p>}
           </div>
         </div>
+
+        {/* Stats */}
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <h3 className="font-semibold mb-3">Service Statistics</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+            <div>
+              <p className="text-gray-500">Total Services</p>
+              <p className="font-bold text-lg">{stats.total}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Active</p>
+              <p className="font-semibold text-green-600">{stats.active}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Closed</p>
+              <p className="font-semibold text-gray-600">{stats.inactive}</p>
+            </div>
+            <div>
+              <p className="text-gray-500">Completed</p>
+              <p className="font-semibold text-blue-600">{stats.completed}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* User's Services */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-bold">Services</h2>
+          {/* Status Filter */}
+          <div className="flex items-center gap-2">
+            <Pill
+              active={statusFilter === 'all'}
+              onClick={() => setStatusFilter('all')}
+            >
+              All ({stats.total})
+            </Pill>
+            <Pill
+              active={statusFilter === 'active'}
+              onClick={() => setStatusFilter('active')}
+            >
+              Active ({stats.active})
+            </Pill>
+            <Pill
+              active={statusFilter === 'inactive'}
+              onClick={() => setStatusFilter('inactive')}
+            >
+              Closed ({stats.inactive})
+            </Pill>
+            <Pill
+              active={statusFilter === 'completed'}
+              onClick={() => setStatusFilter('completed')}
+            >
+              Completed ({stats.completed})
+            </Pill>
+          </div>
+        </div>
+
+        {servicesLoading ? (
+          <p className="text-gray-600">Loading services...</p>
+        ) : filteredServices.length === 0 ? (
+          <div className="rounded-lg border bg-white/70 backdrop-blur p-8 text-center">
+            <p className="text-gray-600">
+              {statusFilter === 'all' 
+                ? 'No services yet' 
+                : `No ${statusFilter} services`}
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {filteredServices.map((service: any) => (
+              <Card
+                key={service.id}
+                title={service.title}
+                subtitle={`${(service.service_type === 'offer' || service.service_type === 'OFFER') ? 'Offering' : 'Seeking'} • ${service.status?.toUpperCase() || 'UNKNOWN'}`}
+                ownerName={profile.display_name || profile.user?.full_name || profile.user?.username || 'User'}
+                desc={service.description}
+                hours={service.estimated_hours}
+                tags={(service.tags || []).map((t: any) =>
+                  typeof t === 'string' ? t : t.slug || t.name || ''
+                )}
+                onTagClick={(tag) => navigate(`/services?tag=${encodeURIComponent(tag)}`)}
+                onOwnerClick={(ownerId) => navigate(`/users/${ownerId}`)}
+                ownerId={profile.user?.id}
+                cta="View Details"
+                onClick={() => navigate(`/services/${service.id}`)}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
