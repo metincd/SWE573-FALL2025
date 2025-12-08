@@ -8,6 +8,9 @@ interface CardProps {
   cta?: string
   onClick?: () => void
   onTagClick?: (tag: string) => void
+  onOwnerClick?: (ownerId: number) => void
+  ownerId?: number
+  ownerName?: string
 }
 
 export default function Card({
@@ -20,13 +23,55 @@ export default function Card({
   cta,
   onClick,
   onTagClick,
+  onOwnerClick,
+  ownerId,
+  ownerName: propOwnerName,
 }: CardProps) {
+  const subtitleParts = subtitle?.split(' • ') || []
+  const subtitleOwnerName = subtitleParts[0]?.trim()
+  const restOfSubtitle = subtitleParts.slice(1).join(' • ')
+  const ownerName = propOwnerName || subtitleOwnerName
+
   return (
     <div className="rounded-2xl border border-gray-200 bg-white/80 backdrop-blur shadow-sm p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-          {subtitle && <p className="text-sm text-gray-600">{subtitle}</p>}
+          {(subtitle || ownerName) && (
+            <p className="text-sm text-gray-600">
+              {ownerName && ownerId && onOwnerClick ? (
+                <>
+                  <span
+                    onClick={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      console.log('Owner clicked:', ownerId, ownerName)
+                      onOwnerClick(ownerId)
+                    }}
+                    className="hover:underline cursor-pointer font-medium text-gray-800"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onOwnerClick(ownerId)
+                      }
+                    }}
+                  >
+                    {ownerName}
+                  </span>
+                  {subtitle && ` • ${subtitle}`}
+                </>
+              ) : (
+                <>
+                  {ownerName && `${ownerName}`}
+                  {ownerName && subtitle && ` • `}
+                  {subtitle}
+                </>
+              )}
+            </p>
+          )}
         </div>
         {(hours !== undefined || distanceKm !== undefined) && (
           <div className="text-right">

@@ -25,16 +25,19 @@ export default function Profile() {
       return response.data
     },
     enabled: isAuthenticated,
+    staleTime: 0,
+    gcTime: 0,
   })
 
   React.useEffect(() => {
     if (profileData) {
+      const profile = profileData as any
       setEditData({
-        display_name: profileData.display_name || '',
-        bio: profileData.bio || '',
+        display_name: profile.display_name || '',
+        bio: profile.bio || '',
       })
-      if (profileData.avatar_url) {
-        setAvatarPreview(profileData.avatar_url)
+      if (profile.avatar_url) {
+        setAvatarPreview(profile.avatar_url)
       }
     }
   }, [profileData])
@@ -414,9 +417,18 @@ export default function Profile() {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <p className="font-semibold">
-                          {request.requester?.full_name || request.requester?.username}
-                        </p>
+                        {request.requester?.id ? (
+                          <p
+                            onClick={() => navigate(`/users/${request.requester.id}`)}
+                            className="font-semibold hover:underline cursor-pointer text-gray-900"
+                          >
+                            {request.requester?.full_name || request.requester?.username}
+                          </p>
+                        ) : (
+                          <p className="font-semibold">
+                            {request.requester?.full_name || request.requester?.username}
+                          </p>
+                        )}
                         <p className="text-sm text-gray-600">{request.service?.title}</p>
                       </div>
                       <span
@@ -527,9 +539,18 @@ export default function Profile() {
                     <div className="flex items-start justify-between mb-2">
                       <div>
                         <p className="font-semibold">{request.service?.title}</p>
-                        <p className="text-sm text-gray-600">
-                          {request.service?.owner?.full_name || request.service?.owner?.username}
-                        </p>
+                        {request.service?.owner?.id ? (
+                          <p
+                            onClick={() => navigate(`/users/${request.service.owner.id}`)}
+                            className="text-sm text-gray-600 hover:underline cursor-pointer font-medium"
+                          >
+                            {request.service?.owner?.full_name || request.service?.owner?.username}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-gray-600">
+                            {request.service?.owner?.full_name || request.service?.owner?.username}
+                          </p>
+                        )}
                       </div>
                       <span
                         className={`px-2 py-1 text-xs rounded-full ${
