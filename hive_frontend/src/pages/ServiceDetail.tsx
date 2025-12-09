@@ -164,7 +164,12 @@ export default function ServiceDetail() {
 
   const handleRequestService = () => {
     if (!isAuthenticated) {
-      navigate('/login')
+      const shouldLogin = window.confirm(
+        'You need to be a member to request this service.\n\nClick "OK" to sign up or login.'
+      )
+      if (shouldLogin) {
+        navigate('/login', { state: { returnTo: `/services/${id}`, message: 'Please login or sign up to request this service.' } })
+      }
       return
     }
 
@@ -332,6 +337,27 @@ export default function ServiceDetail() {
         {existingRequest && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
             You already have a <strong>{existingRequest.status}</strong> request for this service.
+          </div>
+        )}
+        {!isAuthenticated && (service.status === 'active' || service.status === 'ACTIVE') && (
+          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm font-semibold text-amber-800 mb-2">
+              You need to be a member to request this service.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => navigate('/login', { state: { returnTo: `/services/${id}` } })}
+                className="px-4 py-2 bg-black text-white rounded-lg hover:opacity-90 text-sm font-medium"
+              >
+                Login
+              </button>
+              <button
+                onClick={() => navigate('/register', { state: { returnTo: `/services/${id}` } })}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              >
+                Sign Up
+              </button>
+            </div>
           </div>
         )}
         {canRequest && (
