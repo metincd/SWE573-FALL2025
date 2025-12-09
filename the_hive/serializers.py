@@ -46,11 +46,28 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
+    avatar_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "full_name", "date_joined"]
-        read_only_fields = ["id", "email", "date_joined", "full_name"]
+        fields = ["id", "email", "first_name", "last_name", "full_name", "date_joined", "avatar_url"]
+        read_only_fields = ["id", "email", "date_joined", "full_name", "avatar_url"]
+
+    def get_avatar_url(self, obj):
+        if hasattr(obj, 'profile') and obj.profile:
+            profile = obj.profile
+            if profile.avatar:
+                request = self.context.get('request')
+                if request:
+                    return request.build_absolute_uri(profile.avatar.url)
+                from django.conf import settings
+                host = settings.ALLOWED_HOSTS[0] if settings.ALLOWED_HOSTS else 'localhost'
+                protocol = 'https' if not settings.DEBUG else 'http'
+                if settings.DEBUG and host in ['localhost', '127.0.0.1']:
+                    return f"{protocol}://{host}:8000{profile.avatar.url}"
+                return f"{protocol}://{host}{profile.avatar.url}"
+            return profile.avatar_url or None
+        return None
 
 
 class UserRegistrationSerializer(serializers.ModelSerializer):

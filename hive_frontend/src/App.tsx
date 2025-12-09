@@ -11,6 +11,9 @@ import Manifesto from './pages/Manifesto'
 import Chat from './pages/Chat'
 import Messages from './pages/Messages'
 import UserProfile from './pages/UserProfile'
+import Forum from './pages/Forum'
+import ThreadDetail from './pages/ThreadDetail'
+import CreateThread from './pages/CreateThread'
 
 function App() {
   return (
@@ -27,6 +30,9 @@ function App() {
         <Route path="messages" element={<Messages />} />
         <Route path="users/:userId" element={<UserProfile />} />
         <Route path="chat/:conversationId" element={<Chat />} />
+        <Route path="forum" element={<Forum />} />
+        <Route path="forum/create" element={<CreateThread />} />
+        <Route path="forum/:threadId" element={<ThreadDetail />} />
       </Route>
     </Routes>
   )
