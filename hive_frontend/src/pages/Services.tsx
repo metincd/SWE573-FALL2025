@@ -13,6 +13,17 @@ export default function Services() {
   const [serviceTypeFilter, setServiceTypeFilter] = useState<'all' | 'offer' | 'need'>('all')
   const [statusFilters, setStatusFilters] = useState<Set<'active' | 'inactive' | 'completed'>>(new Set(['active', 'inactive']))
 
+  const { data: allDataForStats } = useQuery({
+    queryKey: ['services-all-for-stats', tagFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams()
+      if (tagFilter) params.append('tag', tagFilter)
+      const url = `/services/${params.toString() ? '?' + params.toString() : ''}`
+      const response = await api.get(url)
+      return response.data
+    },
+  })
+
   const { data, isLoading, error } = useQuery({
     queryKey: ['services', tagFilter, serviceTypeFilter, Array.from(statusFilters).sort().join(',')],
     queryFn: async () => {
@@ -28,10 +39,67 @@ export default function Services() {
   const filteredServices = useMemo(() => {
     if (!data?.results) return []
     return data.results.filter((service: any) => {
-      const status = service.status?.toLowerCase()
+      const status = (service.status || '').toLowerCase().trim()
       return statusFilters.has(status as any)
     })
   }, [data, statusFilters])
+
+  const stats = useMemo(() => {
+    const results = allDataForStats?.results || []
+    return {
+      offer: results.filter((s: any) => {
+        const type = (s.service_type || '').toLowerCase()
+        return type === 'offer'
+      }).length,
+      need: results.filter((s: any) => {
+        const type = (s.service_type || '').toLowerCase()
+        return type === 'need'
+      }).length,
+      active: results.filter((s: any) => {
+        const status = (s.status || '').toLowerCase().trim()
+        return status === 'active'
+      }).length,
+      inactive: results.filter((s: any) => {
+        const status = (s.status || '').toLowerCase().trim()
+        return status === 'inactive'
+      }).length,
+      completed: results.filter((s: any) => {
+        const status = (s.status || '').toLowerCase().trim()
+        return status === 'completed'
+      }).length,
+    }
+  }, [allDataForStats])
+
+  const handleTagClick = (tagSlug: string) => {
+    navigate(`/services?tag=${encodeURIComponent(tagSlug)}`)
+  }
+
+  const toggleStatusFilter = (status: 'active' | 'inactive' | 'completed') => {
+    setStatusFilters((prev) => {
+      const newSet = new Set(prev)
+      if (status === 'inactive') {
+        const hasInactive = newSet.has('inactive')
+        const hasCompleted = newSet.has('completed')
+        if (hasInactive && hasCompleted) {
+          newSet.delete('inactive')
+          newSet.delete('completed')
+        } else {
+          newSet.add('inactive')
+          newSet.add('completed')
+        }
+      } else {
+        if (newSet.has(status)) {
+          newSet.delete(status)
+        } else {
+          newSet.add(status)
+        }
+      }
+      if (newSet.size === 0) {
+        return prev
+      }
+      return newSet
+    })
+  }
 
   if (isLoading) {
     return (
@@ -53,37 +121,6 @@ export default function Services() {
       </div>
     )
   }
-
-  const handleTagClick = (tagSlug: string) => {
-    navigate(`/services?tag=${encodeURIComponent(tagSlug)}`)
-  }
-
-  const toggleStatusFilter = (status: 'active' | 'inactive' | 'completed') => {
-    setStatusFilters((prev) => {
-      const newSet = new Set(prev)
-      if (newSet.has(status)) {
-        newSet.delete(status)
-      } else {
-        newSet.add(status)
-      }
-      if (newSet.size === 0) {
-        return prev
-      }
-      return newSet
-    })
-  }
-
-  const stats = useMemo(() => {
-    if (!data?.results) return { offer: 0, need: 0, active: 0, inactive: 0, completed: 0 }
-    const results = data.results
-    return {
-      offer: results.filter((s: any) => (s.service_type === 'offer' || s.service_type === 'OFFER')).length,
-      need: results.filter((s: any) => (s.service_type === 'need' || s.service_type === 'NEED')).length,
-      active: results.filter((s: any) => s.status?.toLowerCase() === 'active').length,
-      inactive: results.filter((s: any) => s.status?.toLowerCase() === 'inactive').length,
-      completed: results.filter((s: any) => s.status?.toLowerCase() === 'completed').length,
-    }
-  }, [data])
 
   return (
     <div className="max-w-6xl mx-auto w-full">
@@ -133,10 +170,10 @@ export default function Services() {
               Active ({stats.active})
             </Pill>
             <Pill
-              active={statusFilters.has('inactive')}
+              active={statusFilters.has('inactive') && statusFilters.has('completed')}
               onClick={() => toggleStatusFilter('inactive')}
             >
-              Closed ({stats.inactive})
+              Closed ({stats.inactive + stats.completed})
             </Pill>
             <Pill
               active={statusFilters.has('completed')}

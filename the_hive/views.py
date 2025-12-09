@@ -428,23 +428,25 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         sr.status = "completed"
         sr.save()
         
-        # Transfer time
+
+        service = sr.service
+        active_requests = service.requests.exclude(status__in=['completed', 'rejected', 'cancelled']).exists()
+        if not active_requests:
+            service.status = "completed"
+            service.save(update_fields=['status'])
+        
         requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
         owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
         
-        # Check if requester has enough balance
         if requester_account.balance >= service_hours:
-            # Debit from requester (service alan kişiden düş)
             requester_account.balance -= service_hours
             requester_account.total_spent += service_hours
             requester_account.save()
             
-            # Credit to owner (hizmet veren kişiye ekle)
             owner_account.balance += service_hours
             owner_account.total_earned += service_hours
             owner_account.save()
             
-            # Create transactions
             TimeTransaction.objects.create(
                 account=requester_account,
                 transaction_type="debit",
