@@ -66,6 +66,12 @@ export default function Layout() {
                   Services
                 </Link>
                 <Link
+                  to="/forum"
+                  className="px-3 py-2 text-sm rounded-xl hover:bg-white/60"
+                >
+                  Forum
+                </Link>
+                <Link
                   to="/messages"
                   className="px-3 py-2 text-sm rounded-xl hover:bg-white/60"
                 >

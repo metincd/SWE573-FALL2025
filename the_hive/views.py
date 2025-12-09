@@ -704,14 +704,15 @@ class ThreadViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = (
-            Thread.objects.select_related("author", "related_service")
-            .prefetch_related("tags", "posts")
+            Thread.objects.select_related("author", "author__profile", "related_service")
+            .prefetch_related("tags", "posts", "posts__author", "posts__author__profile")
             .all()
         )
         status = self.request.query_params.get("status")
         is_flagged = self.request.query_params.get("flagged")
         tag = self.request.query_params.get("tag")
         service = self.request.query_params.get("service")
+        forum_only = self.request.query_params.get("forum_only")
         if status:
             qs = qs.filter(status=status)
         if is_flagged is not None:
@@ -720,6 +721,8 @@ class ThreadViewSet(viewsets.ModelViewSet):
             qs = qs.filter(Q(tags__slug=tag) | Q(tags__name__iexact=tag))
         if service:
             qs = qs.filter(related_service_id=service)
+        if forum_only and forum_only.lower() == "true":
+            qs = qs.filter(related_service__isnull=True)
         return qs
 
     def perform_create(self, serializer):
@@ -755,7 +758,7 @@ class PostViewSet(viewsets.ModelViewSet):
     search_fields = ["body"]
 
     def get_queryset(self):
-        qs = Post.objects.select_related("author", "thread", "thread__author").all()
+        qs = Post.objects.select_related("author", "author__profile", "thread", "thread__author", "thread__author__profile").all()
         thread_id = self.request.query_params.get("thread")
         is_flagged = self.request.query_params.get("flagged")
         status = self.request.query_params.get("status")
