@@ -10,7 +10,7 @@ export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'completed'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed' | 'completed'>('all')
 
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['public-profile', userId],
@@ -33,18 +33,34 @@ export default function UserProfile() {
   const filteredServices = useMemo(() => {
     if (!userServicesData) return []
     if (statusFilter === 'all') return userServicesData
-    return userServicesData.filter((service: any) => 
-      service.status?.toLowerCase() === statusFilter
-    )
+    if (statusFilter === 'closed') {
+      return userServicesData.filter((service: any) => {
+        const status = (service.status || '').toLowerCase().trim()
+        return status === 'inactive' || status === 'completed'
+      })
+    }
+    return userServicesData.filter((service: any) => {
+      const status = (service.status || '').toLowerCase().trim()
+      return status === statusFilter
+    })
   }, [userServicesData, statusFilter])
 
   const stats = useMemo(() => {
     if (!userServicesData) return { total: 0, active: 0, inactive: 0, completed: 0 }
     return {
       total: userServicesData.length,
-      active: userServicesData.filter((s: any) => s.status?.toLowerCase() === 'active').length,
-      inactive: userServicesData.filter((s: any) => s.status?.toLowerCase() === 'inactive').length,
-      completed: userServicesData.filter((s: any) => s.status?.toLowerCase() === 'completed').length,
+      active: userServicesData.filter((s: any) => {
+        const status = (s.status || '').toLowerCase().trim()
+        return status === 'active'
+      }).length,
+      inactive: userServicesData.filter((s: any) => {
+        const status = (s.status || '').toLowerCase().trim()
+        return status === 'inactive'
+      }).length,
+      completed: userServicesData.filter((s: any) => {
+        const status = (s.status || '').toLowerCase().trim()
+        return status === 'completed'
+      }).length,
     }
   }, [userServicesData])
 
@@ -138,7 +154,7 @@ export default function UserProfile() {
             </div>
             <div>
               <p className="text-gray-500">Closed</p>
-              <p className="font-semibold text-gray-600">{stats.inactive}</p>
+              <p className="font-semibold text-gray-600">{stats.inactive + stats.completed}</p>
             </div>
             <div>
               <p className="text-gray-500">Completed</p>
@@ -167,10 +183,10 @@ export default function UserProfile() {
               Active ({stats.active})
             </Pill>
             <Pill
-              active={statusFilter === 'inactive'}
-              onClick={() => setStatusFilter('inactive')}
+              active={statusFilter === 'closed'}
+              onClick={() => setStatusFilter('closed')}
             >
-              Closed ({stats.inactive})
+              Closed ({stats.inactive + stats.completed})
             </Pill>
             <Pill
               active={statusFilter === 'completed'}
