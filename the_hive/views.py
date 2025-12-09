@@ -537,9 +537,19 @@ def register(request):
     serializer = UserRegistrationSerializer(data=request.data)
     if serializer.is_valid():
         user = serializer.save()
-        # Create profile for the user
-        Profile.objects.get_or_create(user=user)
-        # Create time account with default 3 hours balance
+        profile, _ = Profile.objects.get_or_create(user=user)
+        
+        latitude = request.data.get('latitude')
+        longitude = request.data.get('longitude')
+        
+        if latitude and longitude:
+            try:
+                profile.latitude = float(latitude)
+                profile.longitude = float(longitude)
+                profile.save()
+            except (ValueError, TypeError):
+                pass
+        
         TimeAccount.objects.get_or_create(
             user=user,
             defaults={"balance": 3.00},

@@ -10,7 +10,7 @@ export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed' | 'completed'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed'>('all')
 
   const { data: profile, isLoading, error } = useQuery({
     queryKey: ['public-profile', userId],
@@ -187,12 +187,6 @@ export default function UserProfile() {
               onClick={() => setStatusFilter('closed')}
             >
               Closed ({stats.inactive + stats.completed})
-            </Pill>
-            <Pill
-              active={statusFilter === 'completed'}
-              onClick={() => setStatusFilter('completed')}
-            >
-              Completed ({stats.completed})
             </Pill>
           </div>
         </div>

@@ -6,7 +6,7 @@ import { api } from '../api'
 import TextInput from '../components/ui/TextInput'
 import Pill from '../components/ui/Pill'
 import Card from '../components/ui/Card'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -44,8 +44,25 @@ const demoTags = [
   'gardening',
   'music',
   'coding',
-  'eldercare',
+  'elderly-care',
 ]
+
+const userLocationIcon = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-yellow.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+})
+
+function ChangeMapView({ center, zoom }: { center: [number, number], zoom: number }) {
+  const map = useMap()
+  useEffect(() => {
+    map.setView(center, zoom)
+  }, [map, center, zoom])
+  return null
+}
 
 export default function Home() {
   const { isAuthenticated, user, loading: authLoading } = useAuth()
@@ -53,6 +70,7 @@ export default function Home() {
   const [mode, setMode] = useState<'offers' | 'needs'>('offers')
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'nearest' | 'farthest'>('newest')
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 5
 
@@ -69,9 +87,20 @@ export default function Home() {
     queryKey: ['time-account'],
     queryFn: async () => {
       const response = await api.get('/time-accounts/')
-      return response.data[0] // TimeAccountViewSet returns list
+      return response.data[0]
     },
     enabled: isAuthenticated,
+  })
+
+  const { data: userProfile, isLoading: profileLoading } = useQuery({
+    queryKey: ['profile', 'me'],
+    queryFn: async () => {
+      const response = await api.get('/me/')
+      return response.data
+    },
+    enabled: isAuthenticated,
+    staleTime: 0,
+    gcTime: 0,
   })
 
   useEffect(() => {
@@ -94,9 +123,21 @@ export default function Home() {
     return { offers: offersList, needs: needsList }
   }, [servicesData])
 
+  const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371
+    const dLat = (lat2 - lat1) * Math.PI / 180
+    const dLon = (lon2 - lon1) * Math.PI / 180
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2)
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+    return R * c
+  }
+
   const filtered = useMemo(() => {
     const list = mode === 'offers' ? offers : needs
-    return list.filter((item: any) => {
+
+    let result = list.filter((item: any) => {
       const matchesQuery = query
         ? (
             item.title +
@@ -115,7 +156,40 @@ export default function Home() {
 
       return matchesQuery && matchesTags
     })
-  }, [mode, offers, needs, query, activeTags])
+
+    if (userProfile?.latitude && userProfile?.longitude) {
+      const userLat = parseFloat(userProfile.latitude)
+      const userLng = parseFloat(userProfile.longitude)
+      
+      result = result.map((item: any) => {
+        if (item.latitude && item.longitude) {
+          const itemLat = parseFloat(item.latitude)
+          const itemLng = parseFloat(item.longitude)
+          const distance = calculateDistance(userLat, userLng, itemLat, itemLng)
+          return { ...item, distance }
+        }
+        return { ...item, distance: Infinity }
+      })
+    }
+
+    if (sortOrder === 'nearest' || sortOrder === 'farthest') {
+      if (userProfile?.latitude && userProfile?.longitude) {
+        result = result
+          .filter((item: any) => item.distance !== undefined && item.distance !== Infinity)
+          .sort((a: any, b: any) => 
+            sortOrder === 'nearest' ? a.distance - b.distance : b.distance - a.distance
+          )
+      }
+    } else if (sortOrder === 'newest' || sortOrder === 'oldest') {
+      result = result.sort((a: any, b: any) => {
+        const dateA = new Date(a.created_at).getTime()
+        const dateB = new Date(b.created_at).getTime()
+        return sortOrder === 'newest' ? dateB - dateA : dateA - dateB
+      })
+    }
+
+    return result
+  }, [mode, offers, needs, query, activeTags, userProfile, sortOrder])
 
   const paginatedServices = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
@@ -127,7 +201,7 @@ export default function Home() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [mode, query, activeTags])
+  }, [mode, query, activeTags, sortOrder])
 
   const servicesWithLocation = useMemo(() => {
     if (!servicesData?.results) return []
@@ -135,15 +209,44 @@ export default function Home() {
   }, [servicesData])
 
   const mapCenter: [number, number] = useMemo(() => {
-    if (servicesWithLocation.length === 0) {
+    if (!isAuthenticated) {
       return [41.0082, 28.9784]
     }
-    const lats = servicesWithLocation.map((s: any) => parseFloat(s.latitude))
-    const lngs = servicesWithLocation.map((s: any) => parseFloat(s.longitude))
-    const avgLat = lats.reduce((a: number, b: number) => a + b, 0) / lats.length
-    const avgLng = lngs.reduce((a: number, b: number) => a + b, 0) / lngs.length
-    return [avgLat, avgLng]
-  }, [servicesWithLocation])
+    if (profileLoading) {
+      return [41.0082, 28.9784]
+    }
+    if (userProfile?.latitude && userProfile?.longitude) {
+      return [parseFloat(userProfile.latitude), parseFloat(userProfile.longitude)]
+    }
+    return [41.0082, 28.9784]
+  }, [servicesWithLocation, userProfile, isAuthenticated, profileLoading])
+
+  const mapZoom = useMemo(() => {
+    if (!userProfile?.latitude || !userProfile?.longitude) {
+      return 10
+    }
+    const userLat = parseFloat(userProfile.latitude)
+    const userLng = parseFloat(userProfile.longitude)
+    
+    const nearbyServices = servicesWithLocation
+      .map((s: any) => {
+        const distance = calculateDistance(userLat, userLng, parseFloat(s.latitude), parseFloat(s.longitude))
+        return distance
+      })
+      .filter((d: number) => d < 50)
+      .sort((a: number, b: number) => a - b)
+    
+    if (nearbyServices.length === 0) {
+      return 12
+    }
+    
+    const closestDistance = nearbyServices[0]
+    if (closestDistance < 1) return 15
+    if (closestDistance < 5) return 13
+    if (closestDistance < 10) return 12
+    if (closestDistance < 20) return 11
+    return 10
+  }, [userProfile, servicesWithLocation])
 
   function toggleTag(t: string) {
     setActiveTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
@@ -207,7 +310,7 @@ export default function Home() {
           {servicesWithLocation.length > 0 ? (
             <MapContainer
               center={mapCenter}
-              zoom={12}
+              zoom={mapZoom}
               style={{ height: '100%', width: '100%', zIndex: 0 }}
               scrollWheelZoom={true}
             >
@@ -215,6 +318,20 @@ export default function Home() {
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
+              <ChangeMapView center={mapCenter} zoom={mapZoom} />
+              {userProfile?.latitude && userProfile?.longitude && (
+                <Marker
+                  position={[parseFloat(userProfile.latitude), parseFloat(userProfile.longitude)]}
+                  icon={userLocationIcon}
+                >
+                  <Popup>
+                    <div className="p-2">
+                      <p className="font-semibold">Your Location</p>
+                      <p className="text-sm text-gray-600">{userProfile.address || 'Your address'}</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
               {servicesWithLocation.map((service: any) => {
                 const isOffer = service.service_type === 'offer' || service.service_type === 'OFFER'
                 const lat = parseFloat(service.latitude)
@@ -222,6 +339,9 @@ export default function Home() {
                 
                 const matchesFilter = filtered.some((f: any) => f.id === service.id)
                 if (!matchesFilter) return null
+
+                const filteredService = filtered.find((f: any) => f.id === service.id)
+                const distance = filteredService?.distance
 
                 return (
                   <Marker
@@ -263,6 +383,12 @@ export default function Home() {
                             <span className="font-semibold mr-1">Hours:</span>
                             <span>⏱️ {service.estimated_hours || 'N/A'} hours</span>
                           </div>
+                          {distance !== undefined && distance !== Infinity && (
+                            <div className="flex items-center text-xs text-gray-600">
+                              <span className="font-semibold mr-1">Distance:</span>
+                              <span>📍 {distance.toFixed(1)} km</span>
+                            </div>
+                          )}
                           {service.tags && service.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-2">
                               {service.tags.slice(0, 3).map((tag: any) => {
@@ -316,13 +442,34 @@ export default function Home() {
           )}
         </div>
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2 mb-2">
-            <Pill active={mode === 'offers'} onClick={() => setMode('offers')}>
-              Offers ({offers.length})
-            </Pill>
-            <Pill active={mode === 'needs'} onClick={() => setMode('needs')}>
-              Needs ({needs.length})
-            </Pill>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Pill active={mode === 'offers'} onClick={() => setMode('offers')}>
+                Offers ({offers.length})
+              </Pill>
+              <Pill active={mode === 'needs'} onClick={() => setMode('needs')}>
+                Needs ({needs.length})
+              </Pill>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-700">Sort:</span>
+              <Pill active={sortOrder === 'newest'} onClick={() => setSortOrder('newest')}>
+                Newest First
+              </Pill>
+              <Pill active={sortOrder === 'oldest'} onClick={() => setSortOrder('oldest')}>
+                Oldest First
+              </Pill>
+              {isAuthenticated && userProfile?.latitude && userProfile?.longitude && (
+                <>
+                  <Pill active={sortOrder === 'nearest'} onClick={() => setSortOrder('nearest')}>
+                    Nearest First
+                  </Pill>
+                  <Pill active={sortOrder === 'farthest'} onClick={() => setSortOrder('farthest')}>
+                    Farthest First
+                  </Pill>
+                </>
+              )}
+            </div>
           </div>
           {servicesLoading ? (
             <div className="text-center text-gray-500 py-8">Loading...</div>
@@ -344,6 +491,7 @@ export default function Home() {
                   ownerName={item.owner?.full_name || item.owner?.username || 'User'}
                   desc={item.description}
                   hours={item.estimated_hours}
+                  distanceKm={item.distance}
                   tags={(item.tags || []).map((t: any) =>
                     typeof t === 'string' ? t : t.slug || t.name || ''
                   )}
@@ -397,3 +545,4 @@ export default function Home() {
     </div>
   )
 }
+

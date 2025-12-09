@@ -11,7 +11,7 @@ export default function Services() {
   const tagFilter = searchParams.get('tag')
   
   const [serviceTypeFilter, setServiceTypeFilter] = useState<'all' | 'offer' | 'need'>('all')
-  const [statusFilters, setStatusFilters] = useState<Set<'active' | 'inactive' | 'completed'>>(new Set(['active', 'inactive']))
+  const [statusFilters, setStatusFilters] = useState<Set<'active' | 'inactive' | 'completed'>>(new Set(['active', 'inactive', 'completed']))
 
   const { data: allDataForStats } = useQuery({
     queryKey: ['services-all-for-stats', tagFilter],
@@ -174,12 +174,6 @@ export default function Services() {
               onClick={() => toggleStatusFilter('inactive')}
             >
               Closed ({stats.inactive + stats.completed})
-            </Pill>
-            <Pill
-              active={statusFilters.has('completed')}
-              onClick={() => toggleStatusFilter('completed')}
-            >
-              Completed ({stats.completed})
             </Pill>
           </div>
         </div>
