@@ -6,6 +6,11 @@ interface User {
   username: string
   email: string
   full_name?: string
+  is_staff?: boolean
+  is_banned?: boolean
+  is_suspended?: boolean
+  ban_reason?: string
+  suspension_reason?: string
   profile?: {
     display_name?: string
     bio?: string
@@ -39,6 +44,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         username: profileData.user.username,
         email: profileData.user.email,
         full_name: profileData.user.full_name,
+        is_staff: profileData.user.is_staff,
+        is_banned: profileData.user.is_banned,
+        is_suspended: profileData.user.is_suspended,
+        ban_reason: profileData.user.ban_reason,
+        suspension_reason: profileData.user.suspension_reason,
         profile: {
           display_name: profileData.display_name,
           bio: profileData.bio,

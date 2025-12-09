@@ -83,6 +83,14 @@ export default function Layout() {
                 >
                   Profile
                 </Link>
+                {user?.is_staff && (
+                  <Link
+                    to="/admin"
+                    className="px-3 py-2 text-sm rounded-xl hover:bg-white/60 bg-red-50 text-red-700 font-semibold"
+                  >
+                    Admin Panel
+                  </Link>
+                )}
                 <button
                   onClick={logout}
                   className="px-3 py-2 text-sm rounded-xl hover:bg-white/60"

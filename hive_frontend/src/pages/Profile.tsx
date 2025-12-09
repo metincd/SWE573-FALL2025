@@ -202,10 +202,34 @@ export default function Profile() {
               )}
             </div>
             <div className="flex-1">
-              <h2 className="text-xl font-bold mb-2">
-                {profile.display_name || user?.full_name || user?.username || 'User'}
-              </h2>
+              <div className="flex items-center gap-2 mb-2">
+                <h2 className="text-xl font-bold">
+                  {profile.display_name || user?.full_name || user?.username || 'User'}
+                </h2>
+                {user?.is_banned && (
+                  <span className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 font-semibold">
+                    BANNED
+                  </span>
+                )}
+                {user?.is_suspended && (
+                  <span className="px-2 py-1 rounded text-xs bg-amber-100 text-amber-700 font-semibold">
+                    SUSPENDED
+                  </span>
+                )}
+              </div>
               <p className="text-gray-600 mb-2">{user?.email}</p>
+              {user?.is_banned && user?.ban_reason && (
+                <div className="mb-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-sm font-semibold text-red-800 mb-1">Account Banned</p>
+                  <p className="text-sm text-red-700">Reason: {user.ban_reason}</p>
+                </div>
+              )}
+              {user?.is_suspended && user?.suspension_reason && (
+                <div className="mb-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-sm font-semibold text-amber-800 mb-1">Account Suspended</p>
+                  <p className="text-sm text-amber-700">Reason: {user.suspension_reason}</p>
+                </div>
+              )}
               {profile.bio && <p className="text-gray-700">{profile.bio}</p>}
             </div>
           </div>
