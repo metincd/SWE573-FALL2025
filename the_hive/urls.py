@@ -22,6 +22,12 @@ from .views import (
     MeView,
     health_check,
     register,
+    admin_stats,
+    admin_ban_user,
+    admin_suspend_user,
+    admin_unban_user,
+    admin_unsuspend_user,
+    get_content_type,
 )
 from .geocoding import geocode_address
 
@@ -50,6 +56,12 @@ urlpatterns = [
     path("register/", register, name="register"),
     path("me/", MeView.as_view(), name="me"),
     path("geocode/", geocode_address, name="geocode-address"),
+    path("admin/stats/", admin_stats, name="admin-stats"),
+    path("admin/users/<int:user_id>/ban/", admin_ban_user, name="admin-ban-user"),
+    path("admin/users/<int:user_id>/suspend/", admin_suspend_user, name="admin-suspend-user"),
+    path("admin/users/<int:user_id>/unban/", admin_unban_user, name="admin-unban-user"),
+    path("admin/users/<int:user_id>/unsuspend/", admin_unsuspend_user, name="admin-unsuspend-user"),
+    path("contenttypes/get/", get_content_type, name="get-content-type"),
     path("", include(router.urls)),
 ]
 

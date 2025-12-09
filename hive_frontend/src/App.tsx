@@ -14,6 +14,7 @@ import UserProfile from './pages/UserProfile'
 import Forum from './pages/Forum'
 import ThreadDetail from './pages/ThreadDetail'
 import CreateThread from './pages/CreateThread'
+import AdminPanel from './pages/AdminPanel'
 
 function App() {
   return (
@@ -33,6 +34,7 @@ function App() {
         <Route path="forum" element={<Forum />} />
         <Route path="forum/create" element={<CreateThread />} />
         <Route path="forum/:threadId" element={<ThreadDetail />} />
+        <Route path="admin" element={<AdminPanel />} />
       </Route>
     </Routes>
   )

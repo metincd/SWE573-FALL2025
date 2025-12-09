@@ -96,6 +96,11 @@ export default function Messages() {
           {conversations.map((conv: any) => {
             const req = conv.id ? requestsByConversation[conv.id] : null
             const otherParticipant = conv.participants?.find((p: any) => p.id !== user?.id)
+            const isAdminMessage = conv.title?.includes('Admin Message') || 
+                                   conv.title?.includes('Account Action') || 
+                                   conv.title?.includes('Report') ||
+                                   conv.participants?.some((p: any) => p.is_staff && p.id !== user?.id)
+            const adminParticipant = conv.participants?.find((p: any) => p.is_staff && p.id !== user?.id)
             const status = req?.status || 'unknown'
             const isOwner = req?.service?.owner?.id === user?.id
             const isRequester = req?.requester?.id === user?.id
@@ -111,7 +116,14 @@ export default function Messages() {
               >
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    {otherParticipant?.id ? (
+                    {isAdminMessage && adminParticipant ? (
+                      <p
+                        onClick={() => navigate(`/users/${adminParticipant.id}`)}
+                        className="font-semibold hover:underline cursor-pointer text-gray-900"
+                      >
+                        {adminParticipant?.full_name || adminParticipant?.username || 'Unknown Admin'}
+                      </p>
+                    ) : otherParticipant?.id ? (
                       <p
                         onClick={() => navigate(`/users/${otherParticipant.id}`)}
                         className="font-semibold hover:underline cursor-pointer text-gray-900"
@@ -163,7 +175,14 @@ export default function Messages() {
                     Open Chat
                   </button>
 
-                  {otherParticipant && (
+                  {isAdminMessage && adminParticipant ? (
+                    <button
+                      onClick={() => navigate(`/users/${adminParticipant.id}`)}
+                      className="px-3 py-1 text-xs rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      View Profile
+                    </button>
+                  ) : otherParticipant && (
                     <button
                       onClick={() => navigate(`/users/${otherParticipant.id}`)}
                       className="px-3 py-1 text-xs rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"

@@ -4,11 +4,12 @@ import { api } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import { useState } from 'react'
 import Pill from '../components/ui/Pill'
+import ReportButton from '../components/ReportButton'
 
 export default function ThreadDetail() {
   const { threadId } = useParams<{ threadId: string }>()
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const queryClient = useQueryClient()
   const [newPostBody, setNewPostBody] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -51,11 +52,27 @@ export default function ThreadDetail() {
     e.preventDefault()
     if (!newPostBody.trim() || isSubmitting) return
 
+    if (user?.is_banned) {
+      alert(`Your account is banned. Reason: ${user.ban_reason || 'No reason provided'}. You cannot post messages.`)
+      return
+    }
+
+    if (user?.is_suspended) {
+      alert(`Your account is suspended. Reason: ${user.suspension_reason || 'No reason provided'}. You cannot post messages.`)
+      return
+    }
+
     setIsSubmitting(true)
     try {
       await createPostMutation.mutateAsync(newPostBody.trim())
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating post:', error)
+      const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to create post'
+      if (errorMsg.includes('banned') || errorMsg.includes('suspended')) {
+        alert(errorMsg)
+      } else {
+        alert(errorMsg)
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -126,7 +143,10 @@ export default function ThreadDetail() {
                   {(thread.author?.full_name || thread.author?.username || 'U')[0].toUpperCase()}
                 </span>
               </div>
-              <h1 className="text-2xl font-bold">{thread.title}</h1>
+              <div className="flex-1">
+                <h1 className="text-2xl font-bold">{thread.title}</h1>
+              </div>
+              <ReportButton contentType="thread" objectId={thread.id} />
             </div>
             <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
               <span
@@ -199,6 +219,9 @@ export default function ThreadDetail() {
                   </span>
                 </div>
                 <p className="text-gray-700 whitespace-pre-wrap">{post.body}</p>
+                <div className="mt-2">
+                  <ReportButton contentType="post" objectId={post.id} className="text-xs" />
+                </div>
               </div>
             </div>
           </div>

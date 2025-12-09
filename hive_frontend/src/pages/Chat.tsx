@@ -24,7 +24,7 @@ export default function Chat() {
     retry: 2,
   })
 
-  const { data: serviceRequest, isLoading: isLoadingRequest, refetch: refetchRequest } = useQuery({
+  const { data: serviceRequest, refetch: refetchRequest } = useQuery({
     queryKey: ['service-request', 'by-conversation', conversationId],
     queryFn: async () => {
       const response = await api.get(`/service-requests/?conversation=${conversationId}`)
@@ -67,13 +67,38 @@ export default function Chat() {
     },
     onError: (error: any) => {
       console.error('Error sending message:', error)
-      alert(error.response?.data?.detail || 'Failed to send message')
+      const errorMsg = error.response?.data?.detail || 'Failed to send message'
+      if (errorMsg.includes('banned') || errorMsg.includes('suspended')) {
+        alert(errorMsg)
+      } else {
+        alert(errorMsg)
+      }
     },
   })
 
+  const handleSendMessage = () => {
+    if (user?.is_banned) {
+      alert(`Your account is banned. Reason: ${user.ban_reason || 'No reason provided'}. You cannot send messages.`)
+      return
+    }
+
+    if (user?.is_suspended) {
+      alert(`Your account is suspended. Reason: ${user.suspension_reason || 'No reason provided'}. You cannot send messages.`)
+      return
+    }
+
+    if (messageBody.trim() && conversationId) {
+      sendMessageMutation.mutate({
+        conversation: parseInt(conversationId),
+        body: messageBody.trim(),
+      })
+    }
+  }
+
   const setStatusMutation = useMutation({
     mutationFn: async (data: { status: string }) => {
-      const response = await api.post(`/service-requests/${serviceRequest?.id}/set_status/`, data)
+      if (!serviceRequest?.id) throw new Error('Service request not found')
+      const response = await api.post(`/service-requests/${serviceRequest.id}/set_status/`, data)
       return response.data
     },
     onSuccess: () => {
@@ -84,7 +109,8 @@ export default function Chat() {
 
   const approveStartMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.post(`/service-requests/${serviceRequest?.id}/approve_start/`)
+      if (!serviceRequest?.id) throw new Error('Service request not found')
+      const response = await api.post(`/service-requests/${serviceRequest.id}/approve_start/`)
       return response.data
     },
     onSuccess: () => {
@@ -94,7 +120,8 @@ export default function Chat() {
 
   const updateHoursMutation = useMutation({
     mutationFn: async (data: { actual_hours: number }) => {
-      const response = await api.post(`/service-requests/${serviceRequest?.id}/update_hours/`, data)
+      if (!serviceRequest?.id) throw new Error('Service request not found')
+      const response = await api.post(`/service-requests/${serviceRequest.id}/update_hours/`, data)
       return response.data
     },
     onSuccess: () => {
@@ -105,7 +132,8 @@ export default function Chat() {
 
   const approveHoursMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.post(`/service-requests/${serviceRequest?.id}/approve_hours/`)
+      if (!serviceRequest?.id) throw new Error('Service request not found')
+      const response = await api.post(`/service-requests/${serviceRequest.id}/approve_hours/`)
       return response.data
     },
     onSuccess: () => {
@@ -115,7 +143,8 @@ export default function Chat() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-      const response = await api.post(`/service-requests/${serviceRequest?.id}/complete/`)
+      if (!serviceRequest?.id) throw new Error('Service request not found')
+      const response = await api.post(`/service-requests/${serviceRequest.id}/complete/`)
       return response.data
     },
     onSuccess: () => {
@@ -129,7 +158,7 @@ export default function Chat() {
     return null
   }
 
-  if (isLoadingConversation || isLoadingRequest) {
+  if (isLoadingConversation) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -175,30 +204,20 @@ export default function Chat() {
     )
   }
 
-  if (!serviceRequest) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-600 mb-2">Service request not found for this conversation</p>
-          <button
-            onClick={() => navigate(-1)}
-            className="text-sm text-gray-600 underline"
-          >
-            Go Back
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   const otherParticipant = conversation.participants?.find((p: any) => p.id !== user?.id)
-  const isOwner = serviceRequest.service?.owner?.id === user?.id
-  const isRequester = serviceRequest.requester?.id === user?.id
-  const canApproveStart = (isOwner && !serviceRequest.owner_approved) || (isRequester && !serviceRequest.requester_approved)
-  const canUpdateHours = serviceRequest.status === 'in_progress' || serviceRequest.status === 'completed'
-  const canApproveHours = serviceRequest.actual_hours && 
+  const isAdminMessage = conversation.title?.includes('Admin Message') || 
+                         conversation.title?.includes('Account Action') || 
+                         conversation.title?.includes('Report') ||
+                         conversation.participants?.some((p: any) => p.is_staff && p.id !== user?.id)
+  const adminParticipant = conversation.participants?.find((p: any) => p.is_staff && p.id !== user?.id)
+  
+  const isOwner = serviceRequest?.service?.owner?.id === user?.id
+  const isRequester = serviceRequest?.requester?.id === user?.id
+  const canApproveStart = serviceRequest && (isOwner && !serviceRequest.owner_approved) || (isRequester && !serviceRequest.requester_approved)
+  const canUpdateHours = serviceRequest && (serviceRequest.status === 'in_progress' || serviceRequest.status === 'completed')
+  const canApproveHours = serviceRequest && serviceRequest.actual_hours && 
     ((isOwner && !serviceRequest.actual_hours_owner_approved) || (isRequester && !serviceRequest.actual_hours_requester_approved))
-  const canComplete = serviceRequest.status === 'in_progress'
+  const canComplete = serviceRequest && serviceRequest.status === 'in_progress'
 
   return (
     <div className="max-w-4xl mx-auto w-full">
@@ -213,7 +232,14 @@ export default function Chat() {
             <div className="flex items-center gap-3">
           <div>
             <h1 className="text-2xl font-bold">Chat</h1>
-            {otherParticipant?.id ? (
+            {isAdminMessage && adminParticipant ? (
+              <p
+                onClick={() => navigate(`/users/${adminParticipant.id}`)}
+                className="text-sm text-gray-600 hover:underline cursor-pointer font-medium"
+              >
+                {adminParticipant?.full_name || adminParticipant?.username || 'Unknown Admin'}
+              </p>
+            ) : otherParticipant?.id ? (
               <p
                 onClick={() => navigate(`/users/${otherParticipant.id}`)}
                 className="text-sm text-gray-600 hover:underline cursor-pointer font-medium"
@@ -226,7 +252,14 @@ export default function Chat() {
               </p>
             )}
           </div>
-          {otherParticipant && (
+          {isAdminMessage && adminParticipant ? (
+            <button
+              onClick={() => navigate(`/users/${adminParticipant.id}`)}
+              className="px-3 py-1 text-xs rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              View Profile
+            </button>
+          ) : otherParticipant && (
             <button
               onClick={() => navigate(`/users/${otherParticipant.id}`)}
               className="px-3 py-1 text-xs rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
@@ -238,20 +271,35 @@ export default function Chat() {
       </div>
 
       {/* Service Info */}
-      <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4">
-        <h2 className="font-semibold mb-2">{serviceRequest.service?.title}</h2>
-        <div className="flex items-center gap-4 text-sm text-gray-600">
-          <span>Status: <strong className="text-gray-900">{serviceRequest.status}</strong></span>
-          {serviceRequest.service?.estimated_hours && (
-            <span>Estimated: <strong className="text-gray-900">{serviceRequest.service.estimated_hours}h</strong></span>
-          )}
-          {serviceRequest.actual_hours && (
-            <span>Actual: <strong className="text-gray-900">{serviceRequest.actual_hours}h</strong></span>
+      {serviceRequest && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4">
+          <h2 className="font-semibold mb-2">{serviceRequest.service?.title}</h2>
+          <div className="flex items-center gap-4 text-sm text-gray-600">
+            <span>Status: <strong className="text-gray-900">{serviceRequest.status}</strong></span>
+            {serviceRequest.service?.estimated_hours && (
+              <span>Estimated: <strong className="text-gray-900">{serviceRequest.service.estimated_hours}h</strong></span>
+            )}
+            {serviceRequest.actual_hours && (
+              <span>Actual: <strong className="text-gray-900">{serviceRequest.actual_hours}h</strong></span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Admin Message Info */}
+      {isAdminMessage && conversation.title && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4">
+          <h2 className="font-semibold mb-2">{conversation.title}</h2>
+          {adminParticipant && (
+            <p className="text-sm text-gray-600">
+              Admin: {adminParticipant.full_name || adminParticipant.username || adminParticipant.email}
+            </p>
           )}
         </div>
-      </div>
+      )}
 
       {/* Action Buttons */}
+      {serviceRequest && (
       <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4 space-y-3">
         {/* Approve/Reject (Owner only, when pending) */}
         {isOwner && serviceRequest.status === 'pending' && (
@@ -362,6 +410,7 @@ export default function Chat() {
           </div>
         )}
       </div>
+      )}
 
       {/* Messages */}
       <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4">
@@ -394,7 +443,14 @@ export default function Chat() {
                         <p className="text-xs font-semibold mb-1">You</p>
                       ) : message.sender?.id ? (
                         <p
-                          onClick={() => navigate(`/users/${message.sender.id}`)}
+                          onClick={() => {
+                            // If this is an admin message conversation and sender is staff, navigate to admin profile
+                            if (isAdminMessage && message.sender?.is_staff) {
+                              navigate(`/users/${message.sender.id}`)
+                            } else {
+                              navigate(`/users/${message.sender.id}`)
+                            }
+                          }}
                           className="text-xs font-semibold mb-1 hover:underline cursor-pointer"
                         >
                           {message.sender?.full_name || message.sender?.username || 'Unknown'}
@@ -429,25 +485,13 @@ export default function Chat() {
             onKeyDown={(e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                if (messageBody.trim() && conversationId) {
-                  sendMessageMutation.mutate({
-                    conversation: parseInt(conversationId),
-                    body: messageBody.trim(),
-                  })
-                }
+                handleSendMessage()
               }
             }}
           />
           <button
-            onClick={() => {
-              if (messageBody.trim() && conversationId) {
-                sendMessageMutation.mutate({
-                  conversation: parseInt(conversationId),
-                  body: messageBody.trim(),
-                })
-              }
-            }}
-            disabled={sendMessageMutation.isPending || !messageBody.trim()}
+            onClick={handleSendMessage}
+            disabled={sendMessageMutation.isPending || !messageBody.trim() || user?.is_banned || user?.is_suspended}
             className="px-6 py-3 rounded-xl bg-black text-white font-semibold hover:opacity-90 disabled:opacity-50"
           >
             {sendMessageMutation.isPending ? 'Sending...' : 'Send'}

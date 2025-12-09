@@ -95,6 +95,38 @@ class Profile(models.Model):
         max_digits=9, decimal_places=6, null=True, blank=True
     )
     preferred_languages = models.JSONField(default=list, blank=True)
+    is_banned = models.BooleanField(
+        _("is banned"),
+        default=False,
+        help_text=_("Whether this user is banned from the platform")
+    )
+    ban_reason = models.TextField(
+        _("ban reason"),
+        blank=True,
+        help_text=_("Reason for the ban")
+    )
+    ban_expires_at = models.DateTimeField(
+        _("ban expires at"),
+        null=True,
+        blank=True,
+        help_text=_("When the ban expires (null for permanent ban)")
+    )
+    is_suspended = models.BooleanField(
+        _("is suspended"),
+        default=False,
+        help_text=_("Whether this user is temporarily suspended")
+    )
+    suspension_reason = models.TextField(
+        _("suspension reason"),
+        blank=True,
+        help_text=_("Reason for the suspension")
+    )
+    suspension_expires_at = models.DateTimeField(
+        _("suspension expires at"),
+        null=True,
+        blank=True,
+        help_text=_("When the suspension expires")
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

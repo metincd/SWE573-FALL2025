@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import Q, Count
 from django.utils import timezone
 from django.db import connection
 from rest_framework import viewsets, permissions, filters, generics, status
@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 
 from .models import (
+    User,
     Profile,
     Tag,
     Service,
@@ -53,6 +54,33 @@ from django.contrib.contenttypes.models import ContentType
 
 @api_view(["GET"])
 def health_check(request):
+    """Health check endpoint for monitoring"""
+    return Response({"status": "ok"})
+
+
+@api_view(["GET"])
+@permission_classes([permissions.AllowAny])
+def get_content_type(request):
+    """Get ContentType ID for a given app_label and model"""
+    app_label = request.query_params.get("app_label", "the_hive")
+    model = request.query_params.get("model")
+    
+    if not model:
+        return Response({"detail": "model parameter is required."}, status=400)
+    
+    try:
+        content_type = ContentType.objects.get(app_label=app_label, model=model.lower())
+        return Response({
+            "id": content_type.id,
+            "app_label": content_type.app_label,
+            "model": content_type.model
+        })
+    except ContentType.DoesNotExist:
+        return Response({"detail": f"ContentType not found for {app_label}.{model}"}, status=404)
+
+
+@api_view(["GET"])
+def health_check_old(request):
     """Health check endpoint for monitoring"""
     try:
         # Database connectivity check
@@ -199,12 +227,37 @@ class ServiceViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        service = serializer.save(owner=self.request.user)
+        user = self.request.user
+        profile = user.profile
+        
+        if profile.is_banned:
+            if profile.ban_expires_at and timezone.now() > profile.ban_expires_at:
+                profile.is_banned = False
+                profile.ban_reason = ""
+                profile.ban_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is banned. Reason: {profile.ban_reason or "No reason provided"}.'
+                })
+        
+        if profile.is_suspended:
+            if profile.suspension_expires_at and timezone.now() > profile.suspension_expires_at:
+                profile.is_suspended = False
+                profile.suspension_reason = ""
+                profile.suspension_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is suspended. Reason: {profile.suspension_reason or "No reason provided"}.'
+                })
+        
+        service = serializer.save(owner=user)
         from .models import Thread
         if not service.discussion_thread:
             discussion_thread = Thread.objects.create(
                 title=f"Discussion: {service.title}",
-                author=self.request.user,
+                author=user,
                 related_service=service,
                 status="open",
             )
@@ -519,9 +572,22 @@ class ProfileViewSet(viewsets.ReadOnlyModelViewSet):
 
     serializer_class = ProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'user_id'
+    lookup_url_kwarg = 'pk'
 
     def get_queryset(self):
         return Profile.objects.select_related("user").all()
+    
+    def get_object(self):
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        user_id = self.kwargs[lookup_url_kwarg]
+        try:
+            profile = Profile.objects.select_related("user").get(user_id=user_id)
+            self.check_object_permissions(self.request, profile)
+            return profile
+        except Profile.DoesNotExist:
+            from django.http import Http404
+            raise Http404("Profile not found for this user")
     
     def get_serializer_context(self):
         """Add request to serializer context for absolute URLs"""
@@ -672,6 +738,42 @@ class ConversationViewSet(viewsets.ModelViewSet):
         conv.mark_as_read_for_user(request.user)
         return Response({"detail": "Conversation marked as read"})
 
+    @action(detail=False, methods=["post"])
+    def admin_message(self, request):
+        """Admin can send a message to any user"""
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only staff members can send admin messages."}, status=403)
+        
+        target_user_id = request.data.get("target_user_id")
+        message_body = request.data.get("message")
+        
+        if not target_user_id or not message_body:
+            return Response({"detail": "target_user_id and message are required."}, status=400)
+        
+        try:
+            target_user = User.objects.get(id=target_user_id)
+            admin_user = request.user
+            
+            conversation, created = Conversation.objects.get_or_create(
+                title=f"Admin Message to {target_user.email}",
+                defaults={}
+            )
+            conversation.participants.add(admin_user, target_user)
+            
+            message = Message.objects.create(
+                conversation=conversation,
+                sender=admin_user,
+                body=message_body,
+            )
+            
+            return Response({
+                "message": "Admin message sent successfully.",
+                "conversation_id": conversation.id,
+                "message_id": message.id
+            })
+        except User.DoesNotExist:
+            return Response({"detail": "Target user not found."}, status=404)
+
 
 class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
@@ -690,12 +792,37 @@ class MessageViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        user = self.request.user
+        profile = user.profile
+        
+        if profile.is_banned:
+            if profile.ban_expires_at and timezone.now() > profile.ban_expires_at:
+                profile.is_banned = False
+                profile.ban_reason = ""
+                profile.ban_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is banned. Reason: {profile.ban_reason or "No reason provided"}.'
+                })
+        
+        if profile.is_suspended:
+            if profile.suspension_expires_at and timezone.now() > profile.suspension_expires_at:
+                profile.is_suspended = False
+                profile.suspension_reason = ""
+                profile.suspension_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is suspended. Reason: {profile.suspension_reason or "No reason provided"}.'
+                })
+        
         conversation = serializer.validated_data["conversation"]
-        if self.request.user not in conversation.participants.all():
+        if user not in conversation.participants.all():
             return Response(
                 {"detail": "You are not a participant in this conversation."}, status=403
             )
-        serializer.save(sender=self.request.user)
+        serializer.save(sender=user)
 
     @action(detail=True, methods=["post"])
     def mark_read(self, request, pk=None):
@@ -736,7 +863,32 @@ class ThreadViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        user = self.request.user
+        profile = user.profile
+        
+        if profile.is_banned:
+            if profile.ban_expires_at and timezone.now() > profile.ban_expires_at:
+                profile.is_banned = False
+                profile.ban_reason = ""
+                profile.ban_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is banned. Reason: {profile.ban_reason or "No reason provided"}.'
+                })
+        
+        if profile.is_suspended:
+            if profile.suspension_expires_at and timezone.now() > profile.suspension_expires_at:
+                profile.is_suspended = False
+                profile.suspension_reason = ""
+                profile.suspension_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is suspended. Reason: {profile.suspension_reason or "No reason provided"}.'
+                })
+        
+        serializer.save(author=user)
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -781,7 +933,32 @@ class PostViewSet(viewsets.ModelViewSet):
         return qs.order_by("created_at")
 
     def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+        user = self.request.user
+        profile = user.profile
+        
+        if profile.is_banned:
+            if profile.ban_expires_at and timezone.now() > profile.ban_expires_at:
+                profile.is_banned = False
+                profile.ban_reason = ""
+                profile.ban_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is banned. Reason: {profile.ban_reason or "No reason provided"}.'
+                })
+        
+        if profile.is_suspended:
+            if profile.suspension_expires_at and timezone.now() > profile.suspension_expires_at:
+                profile.is_suspended = False
+                profile.suspension_reason = ""
+                profile.suspension_expires_at = None
+                profile.save()
+            else:
+                raise ValidationError({
+                    'detail': f'Your account is suspended. Reason: {profile.suspension_reason or "No reason provided"}.'
+                })
+        
+        serializer.save(author=user)
 
     @action(detail=True, methods=["post"])
     def flag(self, request, pk=None):
@@ -1131,6 +1308,269 @@ class ReportViewSet(viewsets.ModelViewSet):
         report.dismiss(dismissed_by=request.user)
         return Response(ReportSerializer(report).data)
 
+    @action(detail=True, methods=["post"])
+    def ban_user(self, request, pk=None):
+        """Ban the user reported in this report"""
+        report = self.get_object()
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only moderators can ban users."}, status=403)
+        
+        reported_user = None
+        if report.content_type.model == "user":
+            reported_user = User.objects.get(id=report.object_id)
+        elif report.content_type.model == "service":
+            from .models import Service
+            service = Service.objects.get(id=report.object_id)
+            reported_user = service.owner
+        elif report.content_type.model == "servicerequest":
+            from .models import ServiceRequest
+            service_request = ServiceRequest.objects.get(id=report.object_id)
+            reported_user = service_request.requester
+        elif report.content_type.model == "thread":
+            from .models import Thread
+            thread = Thread.objects.get(id=report.object_id)
+            reported_user = thread.author
+        elif report.content_type.model == "post":
+            from .models import Post
+            post = Post.objects.get(id=report.object_id)
+            reported_user = post.author
+        elif report.content_type.model == "message":
+            from .models import Message
+            message = Message.objects.get(id=report.object_id)
+            reported_user = message.sender
+        
+        if not reported_user:
+            return Response({"detail": "Could not identify the reported user."}, status=400)
+        
+        if reported_user.is_staff or reported_user.is_superuser:
+            return Response({"detail": "Cannot ban staff members."}, status=400)
+        
+        reason = request.data.get("reason", f"Report #{report.id}: {report.reason}")
+        expires_at = request.data.get("expires_at")
+        
+        profile = reported_user.profile
+        profile.is_banned = True
+        profile.ban_reason = reason
+        if expires_at:
+            from datetime import datetime
+            profile.ban_expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        profile.save()
+        
+        ModerationAction.objects.create(
+            report=report,
+            moderator=request.user,
+            affected_user=reported_user,
+            action="user_banned",
+            severity="high",
+            notes=f"User banned due to report: {report.reason}. {report.description}"
+        )
+        
+        report.resolve(resolved_by=request.user)
+        
+        from .models import Conversation, Message
+        admin_user = request.user
+        
+        conv1, _ = Conversation.objects.get_or_create(
+            title=f"Account Action: Ban",
+            defaults={}
+        )
+        conv1.participants.add(admin_user, reported_user)
+        Message.objects.create(
+            conversation=conv1,
+            sender=admin_user,
+            body=f"Your account has been banned due to a report. Reason: {reason}. You will not be able to create services or send messages. If you believe this is an error, please contact support."
+        )
+        
+        # Message to reporter
+        conv2, _ = Conversation.objects.get_or_create(
+            title=f"Report #{report.id} - Action Taken",
+            defaults={}
+        )
+        conv2.participants.add(admin_user, report.reporter)
+        Message.objects.create(
+            conversation=conv2,
+            sender=admin_user,
+            body=f"Thank you for your report. We have reviewed it and taken action. The reported user has been banned. Report ID: #{report.id}"
+        )
+        
+        return Response({
+            "message": f"User {reported_user.email} has been banned.",
+            "report": ReportSerializer(report).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def suspend_user(self, request, pk=None):
+        """Suspend the user reported in this report"""
+        report = self.get_object()
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only moderators can suspend users."}, status=403)
+        
+        # Get the reported user
+        reported_user = None
+        if report.content_type.model == "user":
+            reported_user = User.objects.get(id=report.object_id)
+        elif report.content_type.model == "service":
+            from .models import Service
+            service = Service.objects.get(id=report.object_id)
+            reported_user = service.owner
+        elif report.content_type.model == "servicerequest":
+            from .models import ServiceRequest
+            service_request = ServiceRequest.objects.get(id=report.object_id)
+            reported_user = service_request.requester
+        elif report.content_type.model == "thread":
+            from .models import Thread
+            thread = Thread.objects.get(id=report.object_id)
+            reported_user = thread.author
+        elif report.content_type.model == "post":
+            from .models import Post
+            post = Post.objects.get(id=report.object_id)
+            reported_user = post.author
+        elif report.content_type.model == "message":
+            from .models import Message
+            message = Message.objects.get(id=report.object_id)
+            reported_user = message.sender
+        
+        if not reported_user:
+            return Response({"detail": "Could not identify the reported user."}, status=400)
+        
+        if reported_user.is_staff or reported_user.is_superuser:
+            return Response({"detail": "Cannot suspend staff members."}, status=400)
+        
+        reason = request.data.get("reason", f"Report #{report.id}: {report.reason}")
+        expires_at = request.data.get("expires_at")
+        
+        # Suspend the user
+        profile = reported_user.profile
+        profile.is_suspended = True
+        profile.suspension_reason = reason
+        if expires_at:
+            from datetime import datetime
+            profile.suspension_expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        profile.save()
+        
+        # Create moderation action
+        ModerationAction.objects.create(
+            report=report,
+            moderator=request.user,
+            affected_user=reported_user,
+            action="user_suspended",
+            severity="medium",
+            notes=f"User suspended due to report: {report.reason}. {report.description}"
+        )
+        
+        # Resolve the report
+        report.resolve(resolved_by=request.user)
+        
+        # Send messages to both reporter and reported user
+        from .models import Conversation, Message
+        admin_user = request.user
+        
+        # Message to reported user
+        conv1, _ = Conversation.objects.get_or_create(
+            title=f"Account Action: Suspension",
+            defaults={}
+        )
+        conv1.participants.add(admin_user, reported_user)
+        Message.objects.create(
+            conversation=conv1,
+            sender=admin_user,
+            body=f"Your account has been temporarily suspended due to a report. Reason: {reason}. You will not be able to create services or send messages during this period. If you believe this is an error, please contact support: metincemdogan@hotmail.com"
+        )
+        
+        # Message to reporter
+        conv2, _ = Conversation.objects.get_or_create(
+            title=f"Report #{report.id} - Action Taken",
+            defaults={}
+        )
+        conv2.participants.add(admin_user, report.reporter)
+        Message.objects.create(
+            conversation=conv2,
+            sender=admin_user,
+            body=f"Thank you for your report. We have reviewed it and taken action. The reported user has been suspended. Report ID: #{report.id}"
+        )
+        
+        return Response({
+            "message": f"User {reported_user.email} has been suspended.",
+            "report": ReportSerializer(report).data
+        })
+
+    @action(detail=True, methods=["post"])
+    def delete_content(self, request, pk=None):
+        """Delete the reported content (service, post, thread, message)"""
+        report = self.get_object()
+        if not (request.user.is_staff or request.user.is_superuser):
+            return Response({"detail": "Only moderators can delete content."}, status=403)
+        
+        content_type_model = report.content_type.model
+        object_id = report.object_id
+        
+        deleted_content_type = None
+        deleted_content_id = None
+        
+        try:
+            if content_type_model == "service":
+                from .models import Service
+                service = Service.objects.get(id=object_id)
+                deleted_content_type = "service"
+                deleted_content_id = service.id
+                service.delete()
+            elif content_type_model == "post":
+                from .models import Post
+                post = Post.objects.get(id=object_id)
+                deleted_content_type = "post"
+                deleted_content_id = post.id
+                post.delete()
+            elif content_type_model == "thread":
+                from .models import Thread
+                thread = Thread.objects.get(id=object_id)
+                deleted_content_type = "thread"
+                deleted_content_id = thread.id
+                thread.delete()
+            elif content_type_model == "message":
+                from .models import Message
+                message = Message.objects.get(id=object_id)
+                deleted_content_type = "message"
+                deleted_content_id = message.id
+                message.delete()
+            else:
+                return Response({
+                    "detail": f"Cannot delete content of type: {content_type_model}. Only service, post, thread, and message can be deleted."
+                }, status=400)
+        except Exception as e:
+            return Response({
+                "detail": f"Error deleting content: {str(e)}"
+            }, status=400)
+        
+        # Create moderation action
+        ModerationAction.objects.create(
+            report=report,
+            moderator=request.user,
+            action="content_deleted",
+            severity="high",
+            notes=f"Deleted {deleted_content_type} (ID: {deleted_content_id}) due to report: {report.reason}. {report.description}"
+        )
+        
+        report.resolve(resolved_by=request.user)
+        
+        from .models import Conversation, Message
+        admin_user = request.user
+        
+        conv, _ = Conversation.objects.get_or_create(
+            title=f"Report #{report.id} - Content Deleted",
+            defaults={}
+        )
+        conv.participants.add(admin_user, report.reporter)
+        Message.objects.create(
+            conversation=conv,
+            sender=admin_user,
+            body=f"Thank you for your report. We have reviewed it and deleted the reported {deleted_content_type}. Report ID: #{report.id}"
+        )
+        
+        return Response({
+            "message": f"{deleted_content_type.capitalize()} (ID: {deleted_content_id}) has been deleted.",
+            "report": ReportSerializer(report).data
+        })
+
 
 class ModerationActionViewSet(viewsets.ModelViewSet):
     serializer_class = ModerationActionSerializer
@@ -1168,3 +1608,182 @@ class ModerationActionViewSet(viewsets.ModelViewSet):
         reason = request.data.get("reason", "")
         action_obj.reverse(reversed_by=request.user, reason=reason)
         return Response(ModerationActionSerializer(action_obj).data)
+
+
+@api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
+def admin_stats(request):
+    """Admin panel statistics endpoint"""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response({"detail": "Only staff members can access admin statistics."}, status=403)
+    
+    from datetime import timedelta
+    from .models import Service, ServiceRequest, Report, User, Thread, Post, ModerationAction
+    
+    now = timezone.now()
+    last_7_days = now - timedelta(days=7)
+    last_30_days = now - timedelta(days=30)
+    
+    stats = {
+        "services": {
+            "total": Service.objects.count(),
+            "active": Service.objects.filter(status="active").count(),
+            "completed": Service.objects.filter(status="completed").count(),
+            "inactive": Service.objects.filter(status="inactive").count(),
+            "offers": Service.objects.filter(service_type="offer").count(),
+            "needs": Service.objects.filter(service_type="need").count(),
+            "created_last_7_days": Service.objects.filter(created_at__gte=last_7_days).count(),
+            "created_last_30_days": Service.objects.filter(created_at__gte=last_30_days).count(),
+        },
+        "service_requests": {
+            "total": ServiceRequest.objects.count(),
+            "pending": ServiceRequest.objects.filter(status="pending").count(),
+            "accepted": ServiceRequest.objects.filter(status="accepted").count(),
+            "completed": ServiceRequest.objects.filter(status="completed").count(),
+            "created_last_7_days": ServiceRequest.objects.filter(created_at__gte=last_7_days).count(),
+        },
+        "reports": {
+            "total": Report.objects.count(),
+            "pending": Report.objects.filter(status="pending").count(),
+            "under_review": Report.objects.filter(status="under_review").count(),
+            "resolved": Report.objects.filter(status="resolved").count(),
+            "dismissed": Report.objects.filter(status="dismissed").count(),
+            "by_reason": dict(Report.objects.values("reason").annotate(count=Count("id")).values_list("reason", "count")),
+            "created_last_7_days": Report.objects.filter(created_at__gte=last_7_days).count(),
+        },
+        "users": {
+            "total": User.objects.count(),
+            "active": User.objects.filter(is_active=True).count(),
+            "staff": User.objects.filter(is_staff=True).count(),
+            "banned": User.objects.filter(profile__is_banned=True).count(),
+            "suspended": User.objects.filter(profile__is_suspended=True).count(),
+            "registered_last_7_days": User.objects.filter(date_joined__gte=last_7_days).count(),
+            "registered_last_30_days": User.objects.filter(date_joined__gte=last_30_days).count(),
+        },
+        "forum": {
+            "total_threads": Thread.objects.count(),
+            "total_posts": Post.objects.count(),
+            "forum_threads": Thread.objects.filter(related_service__isnull=True).count(),
+            "service_discussions": Thread.objects.filter(related_service__isnull=False).count(),
+            "threads_last_7_days": Thread.objects.filter(created_at__gte=last_7_days).count(),
+            "posts_last_7_days": Post.objects.filter(created_at__gte=last_7_days).count(),
+        },
+        "moderation": {
+            "total_actions": ModerationAction.objects.count(),
+            "active_bans": User.objects.filter(profile__is_banned=True).count(),
+            "active_suspensions": User.objects.filter(profile__is_suspended=True).count(),
+            "actions_last_7_days": ModerationAction.objects.filter(created_at__gte=last_7_days).count(),
+        }
+    }
+    
+    return Response(stats)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def admin_ban_user(request, user_id):
+    """Ban a user"""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response({"detail": "Only staff members can ban users."}, status=403)
+    
+    try:
+        target_user = User.objects.get(id=user_id)
+        if target_user.is_staff or target_user.is_superuser:
+            return Response({"detail": "Cannot ban staff members."}, status=400)
+        
+        profile = target_user.profile
+        profile.is_banned = True
+        profile.ban_reason = request.data.get("reason", "")
+        expires_at = request.data.get("expires_at")
+        if expires_at:
+            from datetime import datetime
+            profile.ban_expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        profile.save()
+        
+        ModerationAction.objects.create(
+            moderator=request.user,
+            affected_user=target_user,
+            action="user_banned",
+            severity="high",
+            notes=profile.ban_reason,
+            expires_at=profile.ban_expires_at
+        )
+        
+        return Response({"message": f"User {target_user.email} has been banned."})
+    except User.DoesNotExist:
+        return Response({"detail": "User not found."}, status=404)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def admin_suspend_user(request, user_id):
+    """Suspend a user"""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response({"detail": "Only staff members can suspend users."}, status=403)
+    
+    try:
+        target_user = User.objects.get(id=user_id)
+        if target_user.is_staff or target_user.is_superuser:
+            return Response({"detail": "Cannot suspend staff members."}, status=400)
+        
+        profile = target_user.profile
+        profile.is_suspended = True
+        profile.suspension_reason = request.data.get("reason", "")
+        expires_at = request.data.get("expires_at")
+        if expires_at:
+            from datetime import datetime
+            profile.suspension_expires_at = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+        profile.save()
+        
+        ModerationAction.objects.create(
+            moderator=request.user,
+            affected_user=target_user,
+            action="user_suspended",
+            severity="medium",
+            notes=profile.suspension_reason,
+            expires_at=profile.suspension_expires_at
+        )
+        
+        return Response({"message": f"User {target_user.email} has been suspended."})
+    except User.DoesNotExist:
+        return Response({"detail": "User not found."}, status=404)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def admin_unban_user(request, user_id):
+    """Unban a user"""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response({"detail": "Only staff members can unban users."}, status=403)
+    
+    try:
+        target_user = User.objects.get(id=user_id)
+        profile = target_user.profile
+        profile.is_banned = False
+        profile.ban_reason = ""
+        profile.ban_expires_at = None
+        profile.save()
+        
+        return Response({"message": f"User {target_user.email} has been unbanned."})
+    except User.DoesNotExist:
+        return Response({"detail": "User not found."}, status=404)
+
+
+@api_view(["POST"])
+@permission_classes([permissions.IsAuthenticated])
+def admin_unsuspend_user(request, user_id):
+    """Unsuspend a user"""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return Response({"detail": "Only staff members can unsuspend users."}, status=403)
+    
+    try:
+        target_user = User.objects.get(id=user_id)
+        profile = target_user.profile
+        profile.is_suspended = False
+        profile.suspension_reason = ""
+        profile.suspension_expires_at = None
+        profile.save()
+        
+        return Response({"message": f"User {target_user.email} has been unsuspended."})
+    except User.DoesNotExist:
+        return Response({"detail": "User not found."}, status=404)

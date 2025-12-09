@@ -36,7 +36,7 @@ function MapClickHandler({ onMapClick }: { onMapClick: (lat: number, lng: number
 
 export default function CreateService() {
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const queryClient = useQueryClient()
   const [formData, setFormData] = useState({
     service_type: 'offer' as 'offer' | 'need',
@@ -57,7 +57,6 @@ export default function CreateService() {
   const addressInputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
 
-  // Fetch available tags
   const { data: tagsData } = useQuery({
     queryKey: ['tags'],
     queryFn: async () => {
@@ -67,7 +66,6 @@ export default function CreateService() {
     enabled: isAuthenticated,
   })
 
-  // Fetch popular tags
   const { data: popularTagsData } = useQuery({
     queryKey: ['tags', 'popular'],
     queryFn: async () => {
@@ -391,6 +389,52 @@ export default function CreateService() {
           >
             Login
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (user?.is_banned) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+            <h2 className="text-xl font-bold text-red-800 mb-2">Account Banned</h2>
+            <p className="text-red-700 mb-4">
+              Your account has been banned from creating services.
+            </p>
+            {user.ban_reason && (
+              <p className="text-sm text-red-600 mb-4">
+                Reason: {user.ban_reason}
+              </p>
+            )}
+            <p className="text-sm text-gray-600">
+              Please contact support if you believe this is an error.
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (user?.is_suspended) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
+            <h2 className="text-xl font-bold text-amber-800 mb-2">Account Suspended</h2>
+            <p className="text-amber-700 mb-4">
+              Your account has been temporarily suspended from creating services.
+            </p>
+            {user.suspension_reason && (
+              <p className="text-sm text-amber-600 mb-4">
+                Reason: {user.suspension_reason}
+              </p>
+            )}
+            <p className="text-sm text-gray-600">
+              Please contact support if you have questions.
+            </p>
+          </div>
         </div>
       </div>
     )

@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { api } from '../api'
 import { useState, useMemo } from 'react'
 import TextInput from '../components/ui/TextInput'
+import ReportButton from '../components/ReportButton'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -41,7 +42,6 @@ export default function ServiceDetail() {
   const [requestMessage, setRequestMessage] = useState('')
   const [showRequestForm, setShowRequestForm] = useState(false)
 
-  // Fetch service details
   const { data: service, isLoading, error } = useQuery({
     queryKey: ['service', id],
     queryFn: async () => {
@@ -51,7 +51,6 @@ export default function ServiceDetail() {
     enabled: !!id,
   })
 
-  // Fetch reviews for this service
   const { data: reviewsData } = useQuery({
     queryKey: ['reviews', 'service', id],
     queryFn: async () => {
@@ -61,7 +60,6 @@ export default function ServiceDetail() {
     enabled: !!id && isAuthenticated,
   })
 
-  // Check if user already has a request for this service
   const { data: myRequestsData } = useQuery({
     queryKey: ['service-requests', 'my'],
     queryFn: async () => {
@@ -146,7 +144,6 @@ export default function ServiceDetail() {
       console.error('Service request error:', error.response?.data)
       const errorMessage = error.response?.data
       if (typeof errorMessage === 'object') {
-        // Handle validation errors
         const errors = Object.entries(errorMessage)
           .map(([key, value]) => {
             if (Array.isArray(value)) {
@@ -170,6 +167,16 @@ export default function ServiceDetail() {
       if (shouldLogin) {
         navigate('/login', { state: { returnTo: `/services/${id}`, message: 'Please login or sign up to request this service.' } })
       }
+      return
+    }
+
+    if (user?.is_banned) {
+      alert(`Your account is banned. Reason: ${user.ban_reason || 'No reason provided'}. You cannot request services.`)
+      return
+    }
+
+    if (user?.is_suspended) {
+      alert(`Your account is suspended. Reason: ${user.suspension_reason || 'No reason provided'}. You cannot request services.`)
       return
     }
 
@@ -269,7 +276,10 @@ export default function ServiceDetail() {
                 {service.status?.toUpperCase() || 'UNKNOWN'}
               </span>
             </div>
-            <h1 className="text-3xl font-bold mb-2">{service.title}</h1>
+            <div className="flex items-start justify-between mb-2">
+              <h1 className="text-3xl font-bold">{service.title}</h1>
+              <ReportButton contentType="service" objectId={service.id} />
+            </div>
             <p className="text-gray-600 mb-4">{service.description}</p>
             
             {/* Tags - Below Description */}
@@ -472,7 +482,7 @@ export default function ServiceDetail() {
               {postsData.results.map((post: any) => (
                 <div key={post.id} className="border-b border-gray-200 pb-4 last:border-0">
                   <div className="flex items-start justify-between mb-2">
-                    <div>
+                    <div className="flex-1">
                       {post.author?.id ? (
                         <p
                           onClick={() => navigate(`/users/${post.author.id}`)}
@@ -490,6 +500,9 @@ export default function ServiceDetail() {
                         {new Date(post.created_at).toLocaleTimeString()}
                       </p>
                     </div>
+                    {isAuthenticated && post.author?.id !== user?.id && (
+                      <ReportButton contentType="post" objectId={post.id} className="ml-2" />
+                    )}
                   </div>
                   <p className="text-gray-700 whitespace-pre-wrap">{post.body}</p>
                 </div>
@@ -511,6 +524,16 @@ export default function ServiceDetail() {
               />
               <button
                 onClick={() => {
+                  if (user?.is_banned) {
+                    alert(`Your account is banned. Reason: ${user.ban_reason || 'No reason provided'}. You cannot post messages.`)
+                    return
+                  }
+
+                  if (user?.is_suspended) {
+                    alert(`Your account is suspended. Reason: ${user.suspension_reason || 'No reason provided'}. You cannot post messages.`)
+                    return
+                  }
+
                   if (discussionThread?.id && newPostBody.trim()) {
                     createPostMutation.mutate({
                       thread: discussionThread.id,
@@ -518,7 +541,7 @@ export default function ServiceDetail() {
                     })
                   }
                 }}
-                disabled={createPostMutation.isPending || !newPostBody.trim()}
+                disabled={createPostMutation.isPending || !newPostBody.trim() || user?.is_banned || user?.is_suspended}
                 className="px-6 py-2 rounded-xl bg-black text-white font-semibold hover:opacity-90 disabled:opacity-50"
               >
                 {createPostMutation.isPending ? 'Posting...' : 'Post Comment'}

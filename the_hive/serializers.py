@@ -47,11 +47,16 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     avatar_url = serializers.SerializerMethodField()
+    is_staff = serializers.BooleanField(read_only=True)
+    is_banned = serializers.SerializerMethodField()
+    is_suspended = serializers.SerializerMethodField()
+    ban_reason = serializers.SerializerMethodField()
+    suspension_reason = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "full_name", "date_joined", "avatar_url"]
-        read_only_fields = ["id", "email", "date_joined", "full_name", "avatar_url"]
+        fields = ["id", "email", "first_name", "last_name", "full_name", "date_joined", "avatar_url", "is_staff", "is_banned", "is_suspended", "ban_reason", "suspension_reason"]
+        read_only_fields = ["id", "email", "date_joined", "full_name", "avatar_url", "is_staff", "is_banned", "is_suspended", "ban_reason", "suspension_reason"]
 
     def get_avatar_url(self, obj):
         if hasattr(obj, 'profile') and obj.profile:
@@ -67,6 +72,26 @@ class UserSerializer(serializers.ModelSerializer):
                     return f"{protocol}://{host}:8000{profile.avatar.url}"
                 return f"{protocol}://{host}{profile.avatar.url}"
             return profile.avatar_url or None
+        return None
+    
+    def get_is_banned(self, obj):
+        if hasattr(obj, 'profile') and obj.profile:
+            return obj.profile.is_banned
+        return False
+    
+    def get_is_suspended(self, obj):
+        if hasattr(obj, 'profile') and obj.profile:
+            return obj.profile.is_suspended
+        return False
+    
+    def get_ban_reason(self, obj):
+        if hasattr(obj, 'profile') and obj.profile and obj.profile.is_banned:
+            return obj.profile.ban_reason
+        return None
+    
+    def get_suspension_reason(self, obj):
+        if hasattr(obj, 'profile') and obj.profile and obj.profile.is_suspended:
+            return obj.profile.suspension_reason
         return None
 
 
@@ -721,6 +746,11 @@ class ReportSerializer(serializers.ModelSerializer):
     is_pending = serializers.BooleanField(read_only=True)
     reported_content_preview = serializers.CharField(read_only=True)
     content_type_name = serializers.SerializerMethodField()
+    reported_object_title = serializers.SerializerMethodField()
+    reported_object_author = serializers.SerializerMethodField()
+    related_thread_id = serializers.SerializerMethodField()
+    related_service_id = serializers.SerializerMethodField()
+    related_conversation_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Report
@@ -734,6 +764,11 @@ class ReportSerializer(serializers.ModelSerializer):
             "description",
             "status",
             "reported_content_preview",
+            "reported_object_title",
+            "reported_object_author",
+            "related_thread_id",
+            "related_service_id",
+            "related_conversation_id",
             "is_pending",
             "evidence_url",
             "created_at",
@@ -744,6 +779,11 @@ class ReportSerializer(serializers.ModelSerializer):
             "id",
             "reporter",
             "reported_content_preview",
+            "reported_object_title",
+            "reported_object_author",
+            "related_thread_id",
+            "related_service_id",
+            "related_conversation_id",
             "is_pending",
             "status",
             "created_at",
@@ -755,6 +795,95 @@ class ReportSerializer(serializers.ModelSerializer):
         if obj.content_type:
             return f"{obj.content_type.app_label}.{obj.content_type.model}"
         return None
+
+    def get_reported_object_title(self, obj):
+        try:
+            reported_obj = obj.reported_object
+            if hasattr(reported_obj, 'title'):
+                return reported_obj.title
+            elif hasattr(reported_obj, 'full_name'):
+                return reported_obj.full_name or reported_obj.username or reported_obj.email
+            elif hasattr(reported_obj, 'username'):
+                return reported_obj.username
+            return None
+        except:
+            return None
+
+    def get_reported_object_author(self, obj):
+        try:
+            reported_obj = obj.reported_object
+            if hasattr(reported_obj, 'author'):
+                author = reported_obj.author
+                return {
+                    'id': author.id,
+                    'full_name': author.full_name or author.username or author.email,
+                    'username': author.username,
+                    'email': author.email
+                }
+            elif hasattr(reported_obj, 'owner'):
+                owner = reported_obj.owner
+                return {
+                    'id': owner.id,
+                    'full_name': owner.full_name or owner.username or owner.email,
+                    'username': owner.username,
+                    'email': owner.email
+                }
+            elif hasattr(reported_obj, 'sender'):
+                sender = reported_obj.sender
+                return {
+                    'id': sender.id,
+                    'full_name': sender.full_name or sender.username or sender.email,
+                    'username': sender.username,
+                    'email': sender.email
+                }
+            elif obj.content_type.model == 'user':
+                user = reported_obj
+                return {
+                    'id': user.id,
+                    'full_name': user.full_name or user.username or user.email,
+                    'username': user.username,
+                    'email': user.email
+                }
+            return None
+        except:
+            return None
+
+    def get_related_thread_id(self, obj):
+        try:
+            reported_obj = obj.reported_object
+            if hasattr(reported_obj, 'thread'):
+                return reported_obj.thread.id
+            elif obj.content_type.model == 'thread':
+                return reported_obj.id
+            return None
+        except:
+            return None
+
+    def get_related_service_id(self, obj):
+        try:
+            reported_obj = obj.reported_object
+            if hasattr(reported_obj, 'related_service'):
+                return reported_obj.related_service.id
+            elif hasattr(reported_obj, 'service'):
+                return reported_obj.service.id
+            elif obj.content_type.model == 'service':
+                return reported_obj.id
+            elif hasattr(reported_obj, 'thread') and hasattr(reported_obj.thread, 'related_service'):
+                return reported_obj.thread.related_service.id
+            return None
+        except:
+            return None
+
+    def get_related_conversation_id(self, obj):
+        try:
+            reported_obj = obj.reported_object
+            if hasattr(reported_obj, 'conversation'):
+                return reported_obj.conversation.id
+            elif obj.content_type.model == 'conversation':
+                return reported_obj.id
+            return None
+        except:
+            return None
 
     def validate(self, attrs):
         # Content type validasyonu
@@ -768,6 +897,7 @@ class ReportSerializer(serializers.ModelSerializer):
                 "message",
                 "review",
                 "conversation",
+                "user",
             ]
             if content_type.model.lower() not in allowed_models:
                 raise serializers.ValidationError(

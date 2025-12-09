@@ -2,9 +2,10 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { useAuth } from '../contexts/AuthContext'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Card from '../components/ui/Card'
 import Pill from '../components/ui/Pill'
+import ReportButton from '../components/ReportButton'
 
 export default function UserProfile() {
   const { userId } = useParams<{ userId: string }>()
@@ -64,8 +65,13 @@ export default function UserProfile() {
     }
   }, [userServicesData])
 
+  useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login')
+    }
+  }, [isAuthenticated, navigate])
+
   if (!isAuthenticated) {
-    navigate('/login')
     return null
   }
 
@@ -129,12 +135,19 @@ export default function UserProfile() {
             )}
           </div>
           <div className="flex-1">
-            <h1 className="text-2xl font-bold mb-2">
-              {profile.display_name || profile.user?.full_name || profile.user?.username}
-            </h1>
-            {isMe && (
-              <p className="text-xs text-amber-700 font-semibold mb-2">(This is you)</p>
-            )}
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <h1 className="text-2xl font-bold">
+                  {profile.display_name || profile.user?.full_name || profile.user?.username}
+                </h1>
+                {isMe && (
+                  <p className="text-xs text-amber-700 font-semibold mt-1">(This is you)</p>
+                )}
+              </div>
+              {profile.user?.id && !isMe && (
+                <ReportButton contentType="user" objectId={profile.user.id} />
+              )}
+            </div>
             <p className="text-sm text-gray-500 mb-4">{profile.user?.email}</p>
             {profile.bio && <p className="text-gray-700 whitespace-pre-wrap">{profile.bio}</p>}
           </div>
