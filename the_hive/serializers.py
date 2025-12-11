@@ -31,16 +31,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Remove 'email' field and add 'username' field that accepts email
-        if 'email' in self.fields:
-            del self.fields['email']
-        self.fields['username'] = serializers.EmailField()
-        self.fields['username'].label = 'Email'
+        if 'username' in self.fields:
+            del self.fields['username']
+        self.fields['email'] = serializers.EmailField()
+        self.fields['email'].label = 'Email'
 
     def validate(self, attrs):
-        # Convert 'username' to 'email' for parent class validation
-        if 'username' in attrs:
-            attrs['email'] = attrs.pop('username')
+        if 'email' not in attrs:
+            raise serializers.ValidationError({"email": "This field is required."})
         return super().validate(attrs)
 
 
@@ -456,7 +454,7 @@ class ThreadSerializer(serializers.ModelSerializer):
 class TimeAccountSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     is_positive_balance = serializers.BooleanField(read_only=True)
-    participation_ratio = serializers.FloatField(read_only=True)
+    participation_ratio = serializers.SerializerMethodField()
 
     class Meta:
         model = TimeAccount
@@ -482,6 +480,12 @@ class TimeAccountSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def get_participation_ratio(self, obj):
+        ratio = obj.participation_ratio
+        if ratio == float('inf'):
+            return None
+        return ratio
 
 
 class TimeTransactionSerializer(serializers.ModelSerializer):

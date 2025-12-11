@@ -38,8 +38,8 @@ api.interceptors.response.use(
 )
 
 export const authApi = {
-  login: (username: string, password: string) =>
-    api.post('/token/', { username, password }),
+  login: (email: string, password: string) =>
+    api.post('/token/', { email, password }),
   refreshToken: (refresh: string) =>
     api.post('/token/refresh/', { refresh }),
 }

@@ -3,7 +3,6 @@ import { authApi, userApi } from '../api'
 
 interface User {
   id: number
-  username: string
   email: string
   full_name?: string
   is_staff?: boolean
@@ -41,7 +40,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const profileData = response.data
       setUser({
         id: profileData.user.id,
-        username: profileData.user.username,
         email: profileData.user.email,
         full_name: profileData.user.full_name,
         is_staff: profileData.user.is_staff,
@@ -74,9 +72,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [])
 
-  const login = async (username: string, password: string) => {
+  const login = async (email: string, password: string) => {
     try {
-      const response = await authApi.login(username, password)
+      const response = await authApi.login(email, password)
       const { access, refresh } = response.data
       localStorage.setItem('access_token', access)
       localStorage.setItem('refresh_token', refresh)

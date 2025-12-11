@@ -64,14 +64,39 @@ export default function Profile() {
     }
   }
 
-  const { data: timeAccountData } = useQuery({
-    queryKey: ['time-account'],
+  const { data: timeAccountData, refetch: refetchTimeAccount, isLoading: timeAccountLoading, error: timeAccountError } = useQuery({
+    queryKey: ['time-account', user?.id],
     queryFn: async () => {
       const response = await api.get('/time-accounts/')
-      return response.data[0]
+      if (Array.isArray(response.data) && response.data.length > 0) {
+        return response.data[0]
+      }
+      return response.data || null
     },
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && !!user?.id,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   })
+
+  React.useEffect(() => {
+    const handleFocus = () => {
+      if (isAuthenticated) {
+        refetchTimeAccount()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [isAuthenticated, refetchTimeAccount])
+
+  React.useEffect(() => {
+    if (user?.id && isAuthenticated) {
+      queryClient.invalidateQueries({ queryKey: ['time-account', user.id] })
+      refetchTimeAccount()
+    }
+  }, [user?.id, isAuthenticated, queryClient, refetchTimeAccount])
 
   const { data: myServicesData } = useQuery({
     queryKey: ['services', 'my'],
@@ -145,7 +170,6 @@ export default function Profile() {
   }
 
   const profile = (profileData as any) || {}
-  const timeAccount = (timeAccountData as any) || {}
   const myServices = myServicesData || []
   const requests = requestsData?.results || []
 
@@ -196,7 +220,7 @@ export default function Profile() {
               ) : (
                 <div className="w-20 h-20 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-300">
                   <span className="text-2xl font-bold text-gray-500">
-                    {(profile.display_name || user?.full_name || user?.username || 'U')[0].toUpperCase()}
+                    {(profile.display_name || user?.full_name || user?.email || 'U')[0].toUpperCase()}
                   </span>
                 </div>
               )}
@@ -204,7 +228,7 @@ export default function Profile() {
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <h2 className="text-xl font-bold">
-                  {profile.display_name || user?.full_name || user?.username || 'User'}
+                  {profile.display_name || user?.full_name || user?.email || 'User'}
                 </h2>
                 {user?.is_banned && (
                   <span className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 font-semibold">
@@ -277,7 +301,7 @@ export default function Profile() {
                   ) : (
                     <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center border-2 border-gray-300">
                       <span className="text-3xl font-bold text-gray-500">
-                        {(editData.display_name || user?.full_name || user?.username || 'U')[0].toUpperCase()}
+                        {(editData.display_name || user?.full_name || user?.email || 'U')[0].toUpperCase()}
                       </span>
                     </div>
                   )}
@@ -360,22 +384,34 @@ export default function Profile() {
         {/* Time Account */}
         <div className="mt-4 pt-4 border-t">
           <h3 className="font-semibold mb-2">Time Account</h3>
-          <div className="grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <p className="text-gray-500">Balance</p>
-              <p className="font-bold text-lg">
-                {Number(timeAccount.balance || 0).toFixed(1)} hours
-              </p>
+          {timeAccountLoading ? (
+            <p className="text-gray-500 text-sm">Loading...</p>
+          ) : timeAccountError ? (
+            <p className="text-red-500 text-sm">Error loading time account: {timeAccountError instanceof Error ? timeAccountError.message : 'Unknown error'}</p>
+          ) : timeAccountData ? (
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-gray-500">Balance</p>
+                <p className="font-bold text-lg">
+                  {timeAccountData.balance != null ? parseFloat(String(timeAccountData.balance)).toFixed(1) : '0.0'} hours
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500">Total Earned</p>
+                <p className="font-semibold">
+                  {timeAccountData.total_earned != null ? parseFloat(String(timeAccountData.total_earned)).toFixed(1) : '0.0'}h
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500">Total Spent</p>
+                <p className="font-semibold">
+                  {timeAccountData.total_spent != null ? parseFloat(String(timeAccountData.total_spent)).toFixed(1) : '0.0'}h
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-gray-500">Total Earned</p>
-              <p className="font-semibold">{Number(timeAccount.total_earned || 0).toFixed(1)}h</p>
-            </div>
-            <div>
-              <p className="text-gray-500">Total Spent</p>
-              <p className="font-semibold">{Number(timeAccount.total_spent || 0).toFixed(1)}h</p>
-            </div>
-          </div>
+          ) : (
+            <p className="text-gray-500 text-sm">No time account data</p>
+          )}
         </div>
       </div>
 
@@ -446,11 +482,11 @@ export default function Profile() {
                             onClick={() => navigate(`/users/${request.requester.id}`)}
                             className="font-semibold hover:underline cursor-pointer text-gray-900"
                           >
-                            {request.requester?.full_name || request.requester?.username}
+                            {request.requester?.full_name || request.requester?.email}
                           </p>
                         ) : (
                           <p className="font-semibold">
-                            {request.requester?.full_name || request.requester?.username}
+                            {request.requester?.full_name || request.requester?.email}
                           </p>
                         )}
                         <p className="text-sm text-gray-600">{request.service?.title}</p>
@@ -568,11 +604,11 @@ export default function Profile() {
                             onClick={() => navigate(`/users/${request.service.owner.id}`)}
                             className="text-sm text-gray-600 hover:underline cursor-pointer font-medium"
                           >
-                            {request.service?.owner?.full_name || request.service?.owner?.username}
+                            {request.service?.owner?.full_name || request.service?.owner?.email}
                           </p>
                         ) : (
                           <p className="text-sm text-gray-600">
-                            {request.service?.owner?.full_name || request.service?.owner?.username}
+                            {request.service?.owner?.full_name || request.service?.owner?.email}
                           </p>
                         )}
                       </div>

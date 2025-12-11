@@ -172,7 +172,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = (
-            Service.objects.select_related("owner")
+            Service.objects.select_related("owner", "owner__profile")
             .prefetch_related("tags")
             .all()
         )
@@ -491,17 +491,28 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
         owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
         
-        if requester_account.balance >= service_hours:
-            requester_account.balance -= service_hours
-            requester_account.total_spent += service_hours
-            requester_account.save()
+        if sr.service.service_type == "need":
+            payer_account = owner_account
+            receiver_account = requester_account
+            payer_name = "Service owner"
+            receiver_name = "Requester"
+        else:
+            payer_account = requester_account
+            receiver_account = owner_account
+            payer_name = "Requester"
+            receiver_name = "Service owner"
+        
+        if payer_account.balance >= service_hours:
+            payer_account.balance -= service_hours
+            payer_account.total_spent += service_hours
+            payer_account.save()
             
-            owner_account.balance += service_hours
-            owner_account.total_earned += service_hours
-            owner_account.save()
+            receiver_account.balance += service_hours
+            receiver_account.total_earned += service_hours
+            receiver_account.save()
             
             TimeTransaction.objects.create(
-                account=requester_account,
+                account=payer_account,
                 transaction_type="debit",
                 amount=service_hours,
                 status="completed",
@@ -510,7 +521,7 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
                 processed_by=user,
             )
             TimeTransaction.objects.create(
-                account=owner_account,
+                account=receiver_account,
                 transaction_type="credit",
                 amount=service_hours,
                 status="completed",
@@ -520,7 +531,7 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
             )
         else:
             return Response(
-                {"detail": f"Requester does not have enough balance. Required: {service_hours}h, Available: {requester_account.balance}h"},
+                {"detail": f"{payer_name} does not have enough balance. Required: {service_hours}h, Available: {payer_account.balance}h"},
                 status=400
             )
         
@@ -534,7 +545,7 @@ class MeView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_object(self):
-        profile, _ = Profile.objects.get_or_create(user=self.request.user)
+        profile, _ = Profile.objects.select_related("user").get_or_create(user=self.request.user)
         return profile
     
     def get_serializer_context(self):
@@ -982,17 +993,22 @@ class TimeAccountViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return TimeAccount.objects.filter(user=user)
+        return TimeAccount.objects.select_related("user", "user__profile").filter(user=user)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["request"] = self.request
+        return context
 
     def retrieve(self, request, *args, **kwargs):
         user = request.user
-        time_account, _ = TimeAccount.objects.get_or_create(user=user)
+        time_account, _ = TimeAccount.objects.select_related("user", "user__profile").get_or_create(user=user)
         serializer = self.get_serializer(time_account)
         return Response(serializer.data)
 
     def list(self, request, *args, **kwargs):
         user = request.user
-        time_account, _ = TimeAccount.objects.get_or_create(user=user)
+        time_account, _ = TimeAccount.objects.select_related("user", "user__profile").get_or_create(user=user)
         serializer = self.get_serializer(time_account)
         return Response([serializer.data])
 
