@@ -71,6 +71,7 @@ export default function Home() {
   const [query, setQuery] = useState('')
   const [activeTags, setActiveTags] = useState<string[]>([])
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'nearest' | 'farthest'>('newest')
+  const [showClosed, setShowClosed] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 5
 
@@ -113,14 +114,18 @@ export default function Home() {
     return () => window.removeEventListener('focus', handleFocus)
   }, [isAuthenticated, refetchTimeAccount])
 
-  const { offers, needs } = useMemo(() => {
-    if (!servicesData?.results) return { offers: [], needs: [] }
+  const { offers, needs, closedOffers, closedNeeds } = useMemo(() => {
+    if (!servicesData?.results) return { offers: [], needs: [], closedOffers: [], closedNeeds: [] }
 
-    const allServices = servicesData.results
-    const offersList = allServices.filter((s: any) => s.service_type === 'offer' || s.service_type === 'OFFER')
-    const needsList = allServices.filter((s: any) => s.service_type === 'need' || s.service_type === 'NEED')
+    const activeServices = servicesData.results.filter((s: any) => s.status === 'active')
+    const closedServices = servicesData.results.filter((s: any) => s.status === 'inactive' || s.status === 'completed')
+    
+    const offersList = activeServices.filter((s: any) => s.service_type === 'offer' || s.service_type === 'OFFER')
+    const needsList = activeServices.filter((s: any) => s.service_type === 'need' || s.service_type === 'NEED')
+    const closedOffersList = closedServices.filter((s: any) => s.service_type === 'offer' || s.service_type === 'OFFER')
+    const closedNeedsList = closedServices.filter((s: any) => s.service_type === 'need' || s.service_type === 'NEED')
 
-    return { offers: offersList, needs: needsList }
+    return { offers: offersList, needs: needsList, closedOffers: closedOffersList, closedNeeds: closedNeedsList }
   }, [servicesData])
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -135,7 +140,9 @@ export default function Home() {
   }
 
   const filtered = useMemo(() => {
-    const list = mode === 'offers' ? offers : needs
+    const activeList = mode === 'offers' ? offers : needs
+    const closedList = mode === 'offers' ? closedOffers : closedNeeds
+    const list = showClosed ? closedList : activeList
 
     let result = list.filter((item: any) => {
       const matchesQuery = query
@@ -189,7 +196,7 @@ export default function Home() {
     }
 
     return result
-  }, [mode, offers, needs, query, activeTags, userProfile, sortOrder])
+  }, [mode, offers, needs, closedOffers, closedNeeds, showClosed, query, activeTags, userProfile, sortOrder])
 
   const paginatedServices = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
@@ -201,11 +208,11 @@ export default function Home() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [mode, query, activeTags, sortOrder])
+  }, [mode, query, activeTags, sortOrder, showClosed])
 
   const servicesWithLocation = useMemo(() => {
     if (!servicesData?.results) return []
-    return servicesData.results.filter((s: any) => s.latitude && s.longitude)
+    return servicesData.results.filter((s: any) => s.latitude && s.longitude && s.status !== 'completed')
   }, [servicesData])
 
   const mapCenter: [number, number] = useMemo(() => {
@@ -261,7 +268,7 @@ export default function Home() {
   }
 
   const userHours = timeAccountData?.balance || 0
-  const displayName = user?.profile?.display_name || user?.full_name || user?.username || 'Guest'
+  const displayName = user?.profile?.display_name || user?.full_name || user?.email || 'Guest'
 
   return (
     <div className="max-w-6xl mx-auto w-full">
@@ -373,7 +380,7 @@ export default function Home() {
                                 }}
                                 className="hover:underline cursor-pointer font-medium text-gray-800"
                               >
-                                {service.owner?.full_name || service.owner?.username || 'Unknown'}
+                                {service.owner?.full_name || service.owner?.email || 'Unknown'}
                               </span>
                             ) : (
                               <span>{service.owner?.full_name || service.owner?.username || 'Unknown'}</span>
@@ -452,6 +459,15 @@ export default function Home() {
               </Pill>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-700">Status:</span>
+              <Pill active={!showClosed} onClick={() => setShowClosed(false)}>
+                Active
+              </Pill>
+              <Pill active={showClosed} onClick={() => setShowClosed(true)}>
+                Closed ({mode === 'offers' ? closedOffers.length : closedNeeds.length})
+              </Pill>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-medium text-gray-700">Sort:</span>
               <Pill active={sortOrder === 'newest'} onClick={() => setSortOrder('newest')}>
                 Newest First
@@ -488,7 +504,7 @@ export default function Home() {
                   key={item.id}
                   title={item.title}
                   subtitle={`${(item.service_type === 'offer' || item.service_type === 'OFFER') ? 'Offering' : 'Seeking'}`}
-                  ownerName={item.owner?.full_name || item.owner?.username || 'User'}
+                  ownerName={item.owner?.full_name || item.owner?.email || 'User'}
                   desc={item.description}
                   hours={item.estimated_hours}
                   distanceKm={item.distance}
