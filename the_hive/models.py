@@ -219,6 +219,13 @@ class Service(models.Model):
         blank=True,
         help_text=_("Estimated time to complete this service"),
     )
+    image = models.ImageField(
+        _("service image"),
+        upload_to="service_images/",
+        blank=True,
+        null=True,
+        help_text=_("Optional image for this service"),
+    )
     discussion_thread = models.OneToOneField(
         "Thread",
         on_delete=models.SET_NULL,

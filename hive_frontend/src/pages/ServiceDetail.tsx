@@ -317,6 +317,17 @@ export default function ServiceDetail() {
                 })}
               </div>
             )}
+            
+            {/* Service Image - Below Tags */}
+            {service.image_url && (
+              <div className="mb-4">
+                <img
+                  src={service.image_url}
+                  alt={service.title}
+                  className="w-full h-64 md:h-96 object-cover rounded-lg border border-gray-200"
+                />
+              </div>
+            )}
           </div>
         </div>
 

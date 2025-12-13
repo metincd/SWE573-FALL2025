@@ -47,7 +47,9 @@ export default function CreateService() {
     latitude: '',
     longitude: '',
     tags: [] as string[],
+    image: null as File | null,
   })
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [tagError, setTagError] = useState('')
   const [addressError, setAddressError] = useState('')
@@ -167,7 +169,25 @@ export default function CreateService() {
 
   const createServiceMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await api.post('/services/', data)
+      const formDataToSend = new FormData()
+      
+      Object.keys(data).forEach((key) => {
+        if (key === 'image' && data[key]) {
+          formDataToSend.append('image', data[key])
+        } else if (key === 'tags' && Array.isArray(data[key])) {
+          data[key].forEach((tag: string) => {
+            formDataToSend.append('tags', tag)
+          })
+        } else if (data[key] !== null && data[key] !== undefined) {
+          formDataToSend.append(key, data[key])
+        }
+      })
+      
+      const response = await api.post('/services/', formDataToSend, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      })
       return response.data
     },
     onSuccess: (data) => {
@@ -375,6 +395,10 @@ export default function CreateService() {
       submitData.address = formData.address.trim()
     }
 
+    if (formData.image) {
+      submitData.image = formData.image
+    }
+
     createServiceMutation.mutate(submitData)
   }
 
@@ -504,6 +528,62 @@ export default function CreateService() {
               rows={5}
               className="w-full rounded-2xl border border-gray-300 bg-white/90 backdrop-blur px-4 py-3 outline-none ring-0 focus:border-gray-400 focus:outline-none"
             />
+          </div>
+
+          {/* Service Image (Optional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Service Image (Optional)
+            </label>
+            <div className="space-y-2">
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) {
+                    if (file.size > 5 * 1024 * 1024) {
+                      setError('Image size must be less than 5MB')
+                      return
+                    }
+                    if (!file.type.startsWith('image/')) {
+                      setError('Please select an image file')
+                      return
+                    }
+                    setFormData((prev) => ({ ...prev, image: file }))
+                    const reader = new FileReader()
+                    reader.onloadend = () => {
+                      setImagePreview(reader.result as string)
+                    }
+                    reader.readAsDataURL(file)
+                    setError('')
+                  }
+                }}
+                className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-black file:text-white hover:file:opacity-90"
+              />
+              {imagePreview && (
+                <div className="relative">
+                  <img
+                    src={imagePreview}
+                    alt="Preview"
+                    className="w-full max-w-md h-48 object-cover rounded-lg border border-gray-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({ ...prev, image: null }))
+                      setImagePreview(null)
+                    }}
+                    className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                    title="Remove image"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Estimated Hours */}

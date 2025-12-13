@@ -184,6 +184,7 @@ class ServiceSerializer(serializers.ModelSerializer):
         many=True, slug_field="slug", queryset=Tag.objects.all(), required=False
     )
     discussion_thread = serializers.PrimaryKeyRelatedField(read_only=True)
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Service
@@ -199,11 +200,27 @@ class ServiceSerializer(serializers.ModelSerializer):
             "address",
             "status",
             "estimated_hours",
+            "image",
+            "image_url",
             "discussion_thread",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "owner", "created_at", "updated_at"]
+        read_only_fields = ["id", "owner", "created_at", "updated_at", "image_url"]
+
+    def get_image_url(self, obj):
+        """Return full URL for service image"""
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            from django.conf import settings
+            host = settings.ALLOWED_HOSTS[0] if settings.ALLOWED_HOSTS else 'localhost'
+            protocol = 'https' if not settings.DEBUG else 'http'
+            if settings.DEBUG and host in ['localhost', '127.0.0.1']:
+                return f"{protocol}://{host}:8000{obj.image.url}"
+            return f"{protocol}://{host}{obj.image.url}"
+        return None
 
 
 class ServiceRequestSerializer(serializers.ModelSerializer):
