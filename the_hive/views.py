@@ -168,7 +168,7 @@ class ServiceViewSet(viewsets.ModelViewSet):
     serializer_class = ServiceSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
     filter_backends = [filters.SearchFilter]
-    search_fields = ["title", "description", "tags__name", "tags__slug"]
+    search_fields = ["title", "description", "tags__name", "tags__slug", "address"]
 
     def get_queryset(self):
         qs = (
