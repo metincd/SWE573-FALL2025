@@ -73,6 +73,10 @@ export default function ServiceDetail() {
     (req: any) => req.service?.id === service?.id
   )
 
+  const isOwner = service?.owner?.id === user?.id
+  const isCompleted = service?.status === 'completed' || service?.status === 'COMPLETED'
+  const completedRequest = existingRequest?.status === 'completed' || existingRequest?.status === 'COMPLETED'
+
   const { data: discussionThread, refetch: refetchThread } = useQuery({
     queryKey: ['thread', service?.discussion_thread],
     queryFn: async () => {
@@ -94,6 +98,14 @@ export default function ServiceDetail() {
   })
 
   const [newPostBody, setNewPostBody] = useState('')
+  const [showThankYouForm, setShowThankYouForm] = useState(false)
+  const [thankYouMessage, setThankYouMessage] = useState('')
+  const [showReviewForm, setShowReviewForm] = useState(false)
+  const [reviewData, setReviewData] = useState({
+    title: '',
+    content: '',
+    review_type: 'service_provider' as 'service_provider' | 'service_receiver' | 'service_quality',
+  })
 
   const createPostMutation = useMutation({
     mutationFn: async (data: { thread: number; body: string }) => {
@@ -108,6 +120,67 @@ export default function ServiceDetail() {
       refetchThread()
     },
   })
+
+  // Thank you note mutation
+  const createThankYouNoteMutation = useMutation({
+    mutationFn: async (data: { to_user_id: number; message: string; related_service: number }) => {
+      const response = await api.post('/thank-you-notes/', data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['thank-you-notes'] })
+      setShowThankYouForm(false)
+      setThankYouMessage('')
+      alert('Thank you note sent successfully!')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.detail || 'Failed to send thank you note')
+    },
+  })
+
+  // Review mutation
+  const createReviewMutation = useMutation({
+    mutationFn: async (data: {
+      reviewee_id: number;
+      related_service: number;
+      review_type: string;
+      rating: number;
+      title: string;
+      content: string;
+    }) => {
+      const response = await api.post('/reviews/', data)
+      return response.data
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reviews', 'service', id] })
+      queryClient.invalidateQueries({ queryKey: ['user-ratings'] })
+      setShowReviewForm(false)
+      setReviewData({ title: '', content: '', review_type: 'service_provider' })
+      alert('Review submitted successfully!')
+    },
+    onError: (error: any) => {
+      alert(error.response?.data?.detail || 'Failed to submit review')
+    },
+  })
+
+  // Check if user already left thank you note
+  const { data: thankYouNotesData } = useQuery({
+    queryKey: ['thank-you-notes', 'service', id],
+    queryFn: async () => {
+      const response = await api.get(`/thank-you-notes/?related_service=${id}`)
+      return response.data
+    },
+    enabled: !!id && isAuthenticated && isCompleted,
+  })
+
+  const hasThankYouNote = thankYouNotesData?.results?.some(
+    (note: any) => note.from_user?.id === user?.id && note.related_service === service?.id
+  )
+
+  // Check if user already left review
+  const hasReview = reviewsData?.results?.some(
+    (review: any) => review.reviewer?.id === user?.id && review.related_service === service?.id
+  )
 
   const hasLocation = service?.latitude && service?.longitude
   const mapCenter: [number, number] = useMemo(() => {
@@ -239,8 +312,13 @@ export default function ServiceDetail() {
     )
   }
 
-  const isOwner = service.owner?.id === user?.id
-  const canRequest = isAuthenticated && !isOwner && !existingRequest && (service.status === 'active' || service.status === 'ACTIVE')
+  const canRequest = isAuthenticated && !isOwner && !existingRequest && (service?.status === 'active' || service?.status === 'ACTIVE')
+  
+  // Determine if user can leave thank you note or review
+  const canLeaveFeedback = isAuthenticated && isCompleted && (isOwner || completedRequest)
+  const otherParty = isOwner 
+    ? existingRequest?.requester 
+    : (existingRequest ? service?.owner : null)
 
   return (
     <div className="max-w-4xl mx-auto w-full">
@@ -568,34 +646,197 @@ export default function ServiceDetail() {
         </div>
       )}
 
+      {/* Thank You Note & Review Section for Completed Services */}
+      {isCompleted && canLeaveFeedback && otherParty && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
+          <h2 className="text-xl font-bold mb-4">Leave Feedback</h2>
+          <p className="text-sm text-gray-600 mb-4">
+            This service has been completed. You can leave a thank you note and review for{' '}
+            {otherParty?.full_name || otherParty?.email || 'the other party'}.
+          </p>
+
+          {/* Thank You Note */}
+          <div className="mb-6 pb-6 border-b border-gray-200">
+            <h3 className="text-lg font-semibold mb-3">Thank You Note</h3>
+            {hasThankYouNote ? (
+              <div className="p-3 bg-green-50 rounded-lg text-sm text-green-800">
+                ✓ You have already sent a thank you note for this service.
+              </div>
+            ) : (
+              <>
+                {!showThankYouForm ? (
+                  <button
+                    onClick={() => setShowThankYouForm(true)}
+                    className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
+                  >
+                    Write Thank You Note
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <textarea
+                      value={thankYouMessage}
+                      onChange={(e) => setThankYouMessage(e.target.value)}
+                      placeholder="Write a thank you message..."
+                      rows={4}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-400"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (thankYouMessage.trim() && otherParty?.id && service?.id) {
+                            createThankYouNoteMutation.mutate({
+                              to_user_id: otherParty.id,
+                              message: thankYouMessage.trim(),
+                              related_service: service.id,
+                            })
+                          }
+                        }}
+                        disabled={createThankYouNoteMutation.isPending || !thankYouMessage.trim()}
+                        className="px-4 py-2 rounded-lg bg-black text-white font-medium hover:opacity-90 disabled:opacity-50"
+                      >
+                        {createThankYouNoteMutation.isPending ? 'Sending...' : 'Send'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowThankYouForm(false)
+                          setThankYouMessage('')
+                        }}
+                        className="px-4 py-2 rounded-lg border border-gray-300 font-medium hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Review */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3">Review</h3>
+            {hasReview ? (
+              <div className="p-3 bg-green-50 rounded-lg text-sm text-green-800">
+                ✓ You have already submitted a review for this service.
+              </div>
+            ) : (
+              <>
+                {!showReviewForm ? (
+                  <button
+                    onClick={() => {
+                      // Determine review type based on user role
+                      const reviewType = isOwner 
+                        ? (service.service_type === 'offer' ? 'service_provider' : 'service_receiver')
+                        : (service.service_type === 'offer' ? 'service_receiver' : 'service_provider')
+                      setReviewData(prev => ({ ...prev, review_type: reviewType }))
+                      setShowReviewForm(true)
+                    }}
+                    className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium"
+                  >
+                    Write Review
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <TextInput
+                      label="Review Title"
+                      name="review_title"
+                      value={reviewData.title}
+                      onChange={(e) => setReviewData(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="Brief summary of your review..."
+                      required
+                    />
+                    <textarea
+                      value={reviewData.content}
+                      onChange={(e) => setReviewData(prev => ({ ...prev, content: e.target.value }))}
+                      placeholder="Write your detailed review..."
+                      rows={5}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-400"
+                      required
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          if (reviewData.title.trim() && reviewData.content.trim() && otherParty?.id && service?.id) {
+                            createReviewMutation.mutate({
+                              reviewee_id: otherParty.id,
+                              related_service: service.id,
+                              review_type: reviewData.review_type,
+                              rating: 5, // Default rating, not shown to user
+                              title: reviewData.title.trim(),
+                              content: reviewData.content.trim(),
+                            })
+                          }
+                        }}
+                        disabled={createReviewMutation.isPending || !reviewData.title.trim() || !reviewData.content.trim()}
+                        className="px-4 py-2 rounded-lg bg-black text-white font-medium hover:opacity-90 disabled:opacity-50"
+                      >
+                        {createReviewMutation.isPending ? 'Submitting...' : 'Submit Review'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowReviewForm(false)
+                          setReviewData({ title: '', content: '', review_type: 'service_provider' })
+                        }}
+                        className="px-4 py-2 rounded-lg border border-gray-300 font-medium hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Reviews Section */}
       {reviewsData && reviewsData.results && reviewsData.results.length > 0 && (
-        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm">
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
           <h2 className="text-xl font-bold mb-4">Reviews</h2>
           <div className="space-y-4">
             {reviewsData.results.map((review: any) => (
               <div key={review.id} className="border-b border-gray-200 pb-4 last:border-0">
                 <div className="flex items-start justify-between mb-2">
-                  <div>
+                  <div className="flex-1">
                     {review.reviewer?.id ? (
                       <p
                         onClick={() => navigate(`/users/${review.reviewer.id}`)}
                         className="font-semibold hover:underline cursor-pointer text-gray-900"
                       >
-                        {review.reviewer?.full_name || review.reviewer?.username || 'Anonymous'}
+                        {review.reviewer?.full_name || review.reviewer?.email || 'Anonymous'}
                       </p>
                     ) : (
                       <p className="font-semibold">
-                        {review.reviewer?.full_name || review.reviewer?.username || 'Anonymous'}
+                        {review.reviewer?.full_name || review.reviewer?.email || 'Anonymous'}
                       </p>
                     )}
                     <p className="text-sm text-gray-500">
-                      {new Date(review.created_at).toLocaleDateString()}
+                      Reviewed {review.reviewee?.id ? (
+                        <span
+                          onClick={() => navigate(`/users/${review.reviewee.id}`)}
+                          className="hover:underline cursor-pointer"
+                        >
+                          {review.reviewee?.full_name || review.reviewee?.email}
+                        </span>
+                      ) : (
+                        review.reviewee?.full_name || review.reviewee?.email
+                      )} • {new Date(review.created_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {review.review_type === 'service_provider' ? 'As Service Provider' :
+                       review.review_type === 'service_receiver' ? 'As Service Receiver' :
+                       'Service Quality'}
                     </p>
                   </div>
-                  <div className="text-amber-500">⭐ {review.rating}/5</div>
                 </div>
-                <p className="text-gray-700">{review.comment}</p>
+                <h4 className="font-semibold text-gray-900 mb-1">{review.title}</h4>
+                <p className="text-gray-700 whitespace-pre-wrap">{review.content}</p>
+                {review.helpful_count > 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {review.helpful_count} {review.helpful_count === 1 ? 'person found' : 'people found'} this helpful
+                  </p>
+                )}
               </div>
             ))}
           </div>

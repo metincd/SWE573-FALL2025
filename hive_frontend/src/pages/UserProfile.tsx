@@ -31,6 +31,25 @@ export default function UserProfile() {
     enabled: !!userId && isAuthenticated,
   })
 
+  const { data: reviewsData } = useQuery({
+    queryKey: ['reviews', 'user', userId],
+    queryFn: async () => {
+      const response = await api.get(`/reviews/?reviewee=${userId}`)
+      return response.data
+    },
+    enabled: !!userId && isAuthenticated,
+  })
+
+  const { data: thankYouNotesData } = useQuery({
+    queryKey: ['thank-you-notes', 'received', userId],
+    queryFn: async () => {
+      const response = await api.get(`/thank-you-notes/?received=true`)
+      return response.data
+    },
+    enabled: !!userId && isAuthenticated,
+  })
+
+
   const filteredServices = useMemo(() => {
     if (!userServicesData) return []
     if (statusFilter === 'all') return userServicesData
@@ -175,6 +194,7 @@ export default function UserProfile() {
             </div>
           </div>
         </div>
+
       </div>
 
       {/* User's Services */}
@@ -237,6 +257,105 @@ export default function UserProfile() {
           </div>
         )}
       </div>
+
+      {/* Thank You Notes Section */}
+      {thankYouNotesData?.results && thankYouNotesData.results.length > 0 && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
+          <h2 className="text-xl font-bold mb-4">Thank You Notes Received</h2>
+          <div className="space-y-4">
+            {thankYouNotesData.results
+              .filter((note: any) => note.to_user?.id === parseInt(userId || '0'))
+              .map((note: any) => (
+                <div key={note.id} className="border-b border-gray-200 pb-4 last:border-0">
+                  <div className="flex items-start justify-between mb-2">
+                    <div>
+                      {note.from_user?.id ? (
+                        <p
+                          onClick={() => navigate(`/users/${note.from_user.id}`)}
+                          className="font-semibold hover:underline cursor-pointer text-gray-900"
+                        >
+                          {note.from_user?.full_name || note.from_user?.email || 'Anonymous'}
+                        </p>
+                      ) : (
+                        <p className="font-semibold">
+                          {note.from_user?.full_name || note.from_user?.email || 'Anonymous'}
+                        </p>
+                      )}
+                      <p className="text-sm text-gray-500">
+                        {new Date(note.created_at).toLocaleDateString()}
+                      </p>
+                      {note.related_service && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          For service: <span
+                            onClick={() => navigate(`/services/${note.related_service}`)}
+                            className="hover:underline cursor-pointer"
+                          >
+                            View Service
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-gray-700 whitespace-pre-wrap">{note.message}</p>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reviews Section */}
+      {reviewsData?.results && reviewsData.results.length > 0 && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
+          <h2 className="text-xl font-bold mb-4">Reviews</h2>
+          <div className="space-y-4">
+            {reviewsData.results.map((review: any) => (
+              <div key={review.id} className="border-b border-gray-200 pb-4 last:border-0">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    {review.reviewer?.id ? (
+                      <p
+                        onClick={() => navigate(`/users/${review.reviewer.id}`)}
+                        className="font-semibold hover:underline cursor-pointer text-gray-900"
+                      >
+                        {review.reviewer?.full_name || review.reviewer?.email || 'Anonymous'}
+                      </p>
+                    ) : (
+                      <p className="font-semibold">
+                        {review.reviewer?.full_name || review.reviewer?.email || 'Anonymous'}
+                      </p>
+                    )}
+                    <p className="text-sm text-gray-500">
+                      {new Date(review.created_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      {review.review_type === 'service_provider' ? 'As Service Provider' :
+                       review.review_type === 'service_receiver' ? 'As Service Receiver' :
+                       'Service Quality'}
+                      {review.related_service && (
+                        <span className="ml-2">
+                          • <span
+                            onClick={() => navigate(`/services/${review.related_service}`)}
+                            className="hover:underline cursor-pointer"
+                          >
+                            View Service
+                          </span>
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <h4 className="font-semibold text-gray-900 mb-1">{review.title}</h4>
+                <p className="text-gray-700 whitespace-pre-wrap">{review.content}</p>
+                {review.helpful_count > 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {review.helpful_count} {review.helpful_count === 1 ? 'person found' : 'people found'} this helpful
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
