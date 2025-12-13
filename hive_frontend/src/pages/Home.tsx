@@ -151,6 +151,8 @@ export default function Home() {
             ' ' +
             item.description +
             ' ' +
+            (item.address || '') +
+            ' ' +
             (item.tags || []).map((t: any) => (typeof t === 'string' ? t : t.slug || t.name || '')).join(' ')
           ).toLowerCase().includes(query.toLowerCase())
         : true
