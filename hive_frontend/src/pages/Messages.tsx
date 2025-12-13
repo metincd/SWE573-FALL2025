@@ -2,11 +2,14 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { useAuth } from '../contexts/AuthContext'
+import { useState } from 'react'
+import Pill from '../components/ui/Pill'
 
 export default function Messages() {
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
   const queryClient = useQueryClient()
+  const [activeTab, setActiveTab] = useState<'messages' | 'thank-you'>('messages')
 
   const { data: conversationsData, isLoading: isLoadingConversations, error: conversationsError } = useQuery({
     queryKey: ['conversations'],
@@ -21,6 +24,15 @@ export default function Messages() {
     queryKey: ['service-requests', 'my'],
     queryFn: async () => {
       const response = await api.get('/service-requests/')
+      return response.data
+    },
+    enabled: isAuthenticated,
+  })
+
+  const { data: thankYouNotesData } = useQuery({
+    queryKey: ['thank-you-notes'],
+    queryFn: async () => {
+      const response = await api.get('/thank-you-notes/')
       return response.data
     },
     enabled: isAuthenticated,
@@ -82,16 +94,41 @@ export default function Messages() {
     )
   }
 
+  const thankYouNotes = thankYouNotesData?.results || []
+  const receivedThankYouNotes = thankYouNotes.filter((note: any) => note.to_user?.id === user?.id)
+  const sentThankYouNotes = thankYouNotes.filter((note: any) => note.from_user?.id === user?.id)
+
   return (
     <div className="max-w-4xl mx-auto w-full">
       <h1 className="text-2xl font-bold mb-4">Messages</h1>
-      <p className="text-sm text-gray-600 mb-6">
-        All your private chats. You can open a conversation or manage requests directly from here.
-      </p>
+      
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6">
+        <Pill
+          active={activeTab === 'messages'}
+          onClick={() => setActiveTab('messages')}
+        >
+          Messages {conversations.length > 0 && `(${conversations.length})`}
+        </Pill>
+        <Pill
+          active={activeTab === 'thank-you'}
+          onClick={() => setActiveTab('thank-you')}
+        >
+          Thank You Notes {(receivedThankYouNotes.length > 0 || sentThankYouNotes.length > 0) && 
+            `(${receivedThankYouNotes.length + sentThankYouNotes.length})`}
+        </Pill>
+      </div>
 
-      {conversations.length === 0 ? (
-        <p className="text-sm text-gray-500">You don't have any conversations yet.</p>
-      ) : (
+      {/* Messages Tab */}
+      {activeTab === 'messages' && (
+        <>
+          <p className="text-sm text-gray-600 mb-6">
+            All your private chats. You can open a conversation or manage requests directly from here.
+          </p>
+
+          {conversations.length === 0 ? (
+            <p className="text-sm text-gray-500">You don't have any conversations yet.</p>
+          ) : (
         <div className="space-y-4">
           {conversations.map((conv: any) => {
             const req = conv.id ? requestsByConversation[conv.id] : null
@@ -227,6 +264,105 @@ export default function Messages() {
               </div>
             )
           })}
+          </div>
+          )}
+        </>
+      )}
+
+      {/* Thank You Notes Tab */}
+      {activeTab === 'thank-you' && (
+        <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm">
+          <h2 className="text-xl font-bold mb-4">Thank You Notes</h2>
+          
+          {receivedThankYouNotes.length === 0 && sentThankYouNotes.length === 0 ? (
+            <p className="text-sm text-gray-500">You don't have any thank you notes yet.</p>
+          ) : (
+            <>
+              {receivedThankYouNotes.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold mb-3">Received ({receivedThankYouNotes.length})</h3>
+                  <div className="space-y-3">
+                    {receivedThankYouNotes.map((note: any) => (
+                      <div key={note.id} className="border-b border-gray-200 pb-3 last:border-0">
+                        <div className="flex items-start justify-between mb-1">
+                          <div>
+                            {note.from_user?.id ? (
+                              <p
+                                onClick={() => navigate(`/users/${note.from_user.id}`)}
+                                className="font-semibold hover:underline cursor-pointer text-gray-900"
+                              >
+                                {note.from_user?.full_name || note.from_user?.email || 'Anonymous'}
+                              </p>
+                            ) : (
+                              <p className="font-semibold">
+                                {note.from_user?.full_name || note.from_user?.email || 'Anonymous'}
+                              </p>
+                            )}
+                            <p className="text-sm text-gray-500">
+                              {new Date(note.created_at).toLocaleDateString()}
+                            </p>
+                            {note.related_service && (
+                              <p className="text-xs text-gray-400 mt-1">
+                                For service: <span
+                                  onClick={() => navigate(`/services/${note.related_service}`)}
+                                  className="hover:underline cursor-pointer"
+                                >
+                                  View Service
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-gray-700 whitespace-pre-wrap text-sm">{note.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {sentThankYouNotes.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3">Sent ({sentThankYouNotes.length})</h3>
+                  <div className="space-y-3">
+                    {sentThankYouNotes.map((note: any) => (
+                      <div key={note.id} className="border-b border-gray-200 pb-3 last:border-0">
+                        <div className="flex items-start justify-between mb-1">
+                          <div>
+                            {note.to_user?.id ? (
+                              <p
+                                onClick={() => navigate(`/users/${note.to_user.id}`)}
+                                className="font-semibold hover:underline cursor-pointer text-gray-900"
+                              >
+                                To: {note.to_user?.full_name || note.to_user?.email || 'Anonymous'}
+                              </p>
+                            ) : (
+                              <p className="font-semibold">
+                                To: {note.to_user?.full_name || note.to_user?.email || 'Anonymous'}
+                              </p>
+                            )}
+                            <p className="text-sm text-gray-500">
+                              {new Date(note.created_at).toLocaleDateString()}
+                            </p>
+                            {note.related_service && (
+                              <p className="text-xs text-gray-400 mt-1">
+                                For service: <span
+                                  onClick={() => navigate(`/services/${note.related_service}`)}
+                                  className="hover:underline cursor-pointer"
+                                >
+                                  View Service
+                                </span>
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-gray-700 whitespace-pre-wrap text-sm">{note.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
