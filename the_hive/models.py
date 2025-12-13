@@ -313,16 +313,25 @@ class ServiceRequest(models.Model):
         blank=True,
         help_text=_("Actual hours worked (can be updated after completion)"),
     )
-    # Two-party approval for actual hours
     actual_hours_owner_approved = models.BooleanField(
         _("owner approved hours"),
         default=False,
-        help_text=_("Service owner has approved the actual hours"),
+        help_text=_("Service owner has approved the actual hours (deprecated)"),
     )
     actual_hours_requester_approved = models.BooleanField(
         _("requester approved hours"),
         default=False,
-        help_text=_("Requester has approved the actual hours"),
+        help_text=_("Requester has approved the actual hours (deprecated)"),
+    )
+    owner_completed = models.BooleanField(
+        _("owner completed"),
+        default=False,
+        help_text=_("Service owner has marked the service as completed"),
+    )
+    requester_completed = models.BooleanField(
+        _("requester completed"),
+        default=False,
+        help_text=_("Requester has marked the service as completed"),
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -73,9 +73,22 @@ export default function ServiceDetail() {
     (req: any) => req.service?.id === service?.id
   )
 
+  const { data: allServiceRequestsData } = useQuery({
+    queryKey: ['service-requests', 'service', id],
+    queryFn: async () => {
+      const response = await api.get(`/service-requests/?service=${id}`)
+      return response.data
+    },
+    enabled: !!id && isAuthenticated,
+  })
+
+  const allServiceRequests = allServiceRequestsData?.results || []
+  const completedRequests = allServiceRequests.filter(
+    (req: any) => req.status === 'completed' || req.status === 'COMPLETED'
+  )
+
   const isOwner = service?.owner?.id === user?.id
   const isCompleted = service?.status === 'completed' || service?.status === 'COMPLETED'
-  const completedRequest = existingRequest?.status === 'completed' || existingRequest?.status === 'COMPLETED'
 
   const { data: discussionThread, refetch: refetchThread } = useQuery({
     queryKey: ['thread', service?.discussion_thread],
@@ -121,7 +134,6 @@ export default function ServiceDetail() {
     },
   })
 
-  // Thank you note mutation
   const createThankYouNoteMutation = useMutation({
     mutationFn: async (data: { to_user_id: number; message: string; related_service: number }) => {
       const response = await api.post('/thank-you-notes/', data)
@@ -138,7 +150,6 @@ export default function ServiceDetail() {
     },
   })
 
-  // Review mutation
   const createReviewMutation = useMutation({
     mutationFn: async (data: {
       reviewee_id: number;
@@ -163,7 +174,6 @@ export default function ServiceDetail() {
     },
   })
 
-  // Check if user already left thank you note
   const { data: thankYouNotesData } = useQuery({
     queryKey: ['thank-you-notes', 'service', id],
     queryFn: async () => {
@@ -177,7 +187,6 @@ export default function ServiceDetail() {
     (note: any) => note.from_user?.id === user?.id && note.related_service === service?.id
   )
 
-  // Check if user already left review
   const hasReview = reviewsData?.results?.some(
     (review: any) => review.reviewer?.id === user?.id && review.related_service === service?.id
   )
@@ -196,18 +205,19 @@ export default function ServiceDetail() {
 
   const isOffer = service?.service_type === 'offer' || service?.service_type === 'OFFER'
 
-  // Create service request mutation
   const createRequestMutation = useMutation({
     mutationFn: async (data: { service_id: number; message: string }) => {
       const response = await api.post('/service-requests/', data)
       return response.data
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ['service-requests'] })
       queryClient.invalidateQueries({ queryKey: ['service-requests', 'my'] })
       setShowRequestForm(false)
       setRequestMessage('')
       if (data?.conversation) {
+        await queryClient.invalidateQueries({ queryKey: ['messages', data.conversation] })
+        await queryClient.invalidateQueries({ queryKey: ['conversation', data.conversation] })
         navigate(`/chat/${data.conversation}`)
       } else {
         alert('Service request sent successfully!')
@@ -314,10 +324,11 @@ export default function ServiceDetail() {
 
   const canRequest = isAuthenticated && !isOwner && !existingRequest && (service?.status === 'active' || service?.status === 'ACTIVE')
   
-  // Determine if user can leave thank you note or review
-  const canLeaveFeedback = isAuthenticated && isCompleted && (isOwner || completedRequest)
+ 
+  const canLeaveFeedback = isAuthenticated && isCompleted && (isOwner || existingRequest)
+  
   const otherParty = isOwner 
-    ? existingRequest?.requester 
+    ? (existingRequest?.requester || (completedRequests.length > 0 ? completedRequests[0].requester : null))
     : (existingRequest ? service?.owner : null)
 
   return (
@@ -647,12 +658,12 @@ export default function ServiceDetail() {
       )}
 
       {/* Thank You Note & Review Section for Completed Services */}
-      {isCompleted && canLeaveFeedback && otherParty && (
+      {isCompleted && canLeaveFeedback && (otherParty || (isOwner && completedRequests.length > 0)) && (
         <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-6 shadow-sm mb-6">
           <h2 className="text-xl font-bold mb-4">Leave Feedback</h2>
           <p className="text-sm text-gray-600 mb-4">
             This service has been completed. You can leave a thank you note and review for{' '}
-            {otherParty?.full_name || otherParty?.email || 'the other party'}.
+            {otherParty?.full_name || otherParty?.email || (isOwner && completedRequests.length > 0 ? completedRequests[0].requester?.full_name || completedRequests[0].requester?.email : 'the other party')}.
           </p>
 
           {/* Thank You Note */}
@@ -681,16 +692,17 @@ export default function ServiceDetail() {
                       className="w-full rounded-lg border border-gray-300 px-4 py-3 outline-none focus:border-gray-400"
                     />
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => {
-                          if (thankYouMessage.trim() && otherParty?.id && service?.id) {
-                            createThankYouNoteMutation.mutate({
-                              to_user_id: otherParty.id,
-                              message: thankYouMessage.trim(),
-                              related_service: service.id,
-                            })
-                          }
-                        }}
+                    <button
+                      onClick={() => {
+                        const targetUser = otherParty || (isOwner && completedRequests.length > 0 ? completedRequests[0].requester : null)
+                        if (thankYouMessage.trim() && targetUser?.id && service?.id) {
+                          createThankYouNoteMutation.mutate({
+                            to_user_id: targetUser.id,
+                            message: thankYouMessage.trim(),
+                            related_service: service.id,
+                          })
+                        }
+                      }}
                         disabled={createThankYouNoteMutation.isPending || !thankYouMessage.trim()}
                         className="px-4 py-2 rounded-lg bg-black text-white font-medium hover:opacity-90 disabled:opacity-50"
                       >
@@ -756,9 +768,10 @@ export default function ServiceDetail() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          if (reviewData.title.trim() && reviewData.content.trim() && otherParty?.id && service?.id) {
+                          const targetUser = otherParty || (isOwner && completedRequests.length > 0 ? completedRequests[0].requester : null)
+                          if (reviewData.title.trim() && reviewData.content.trim() && targetUser?.id && service?.id) {
                             createReviewMutation.mutate({
-                              reviewee_id: otherParty.id,
+                              reviewee_id: targetUser.id,
                               related_service: service.id,
                               review_type: reviewData.review_type,
                               rating: 5, // Default rating, not shown to user

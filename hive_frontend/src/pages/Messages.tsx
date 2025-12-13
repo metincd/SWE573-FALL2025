@@ -64,6 +64,7 @@ export default function Messages() {
       return response.data
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['service-requests'] })
       queryClient.invalidateQueries({ queryKey: ['service-requests', 'my'] })
     },
   })
@@ -173,7 +174,12 @@ export default function Messages() {
                       </p>
                     )}
                     {req?.service?.title && (
-                      <p className="text-sm text-gray-600">{req.service.title}</p>
+                      <p 
+                        onClick={() => req?.service?.id && navigate(`/services/${req.service.id}`)}
+                        className="text-sm text-gray-600 hover:underline cursor-pointer"
+                      >
+                        {req.service.title}
+                      </p>
                     )}
                   </div>
                   {req && (

@@ -11,7 +11,6 @@ export default function Chat() {
   const { isAuthenticated, user } = useAuth()
   const queryClient = useQueryClient()
   const [messageBody, setMessageBody] = useState('')
-  const [actualHours, setActualHours] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const { data: conversation, isLoading: isLoadingConversation, error: conversationError } = useQuery({
@@ -43,6 +42,8 @@ export default function Chat() {
     },
     enabled: !!conversationId && isAuthenticated,
     refetchInterval: 3000, // Poll every 3 seconds
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
     retry: 2,
   })
 
@@ -51,6 +52,12 @@ export default function Chat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    if (conversationId && isAuthenticated) {
+      refetchMessages()
+    }
+  }, [conversationId, isAuthenticated, refetchMessages])
 
   const sendMessageMutation = useMutation({
     mutationFn: async (data: { conversation: number; body: string }) => {
@@ -115,29 +122,9 @@ export default function Chat() {
     },
     onSuccess: () => {
       refetchRequest()
-    },
-  })
-
-  const updateHoursMutation = useMutation({
-    mutationFn: async (data: { actual_hours: number }) => {
-      if (!serviceRequest?.id) throw new Error('Service request not found')
-      const response = await api.post(`/service-requests/${serviceRequest.id}/update_hours/`, data)
-      return response.data
-    },
-    onSuccess: () => {
-      refetchRequest()
-      setActualHours('')
-    },
-  })
-
-  const approveHoursMutation = useMutation({
-    mutationFn: async () => {
-      if (!serviceRequest?.id) throw new Error('Service request not found')
-      const response = await api.post(`/service-requests/${serviceRequest.id}/approve_hours/`)
-      return response.data
-    },
-    onSuccess: () => {
-      refetchRequest()
+      queryClient.invalidateQueries({ queryKey: ['service-requests'] })
+      queryClient.invalidateQueries({ queryKey: ['service-requests', 'my'] })
+      queryClient.invalidateQueries({ queryKey: ['service-request'] })
     },
   })
 
@@ -214,10 +201,12 @@ export default function Chat() {
   const isOwner = serviceRequest?.service?.owner?.id === user?.id
   const isRequester = serviceRequest?.requester?.id === user?.id
   const canApproveStart = serviceRequest && (isOwner && !serviceRequest.owner_approved) || (isRequester && !serviceRequest.requester_approved)
-  const canUpdateHours = serviceRequest && (serviceRequest.status === 'in_progress' || serviceRequest.status === 'completed')
-  const canApproveHours = serviceRequest && serviceRequest.actual_hours && 
-    ((isOwner && !serviceRequest.actual_hours_owner_approved) || (isRequester && !serviceRequest.actual_hours_requester_approved))
   const canComplete = serviceRequest && serviceRequest.status === 'in_progress'
+  const canMarkCompleted = canComplete && (
+    (isOwner && !serviceRequest.owner_completed) || 
+    (isRequester && !serviceRequest.requester_completed)
+  )
+  const bothCompleted = serviceRequest && serviceRequest.owner_completed && serviceRequest.requester_completed
 
   return (
     <div className="max-w-4xl mx-auto w-full">
@@ -273,14 +262,16 @@ export default function Chat() {
       {/* Service Info */}
       {serviceRequest && (
         <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4">
-          <h2 className="font-semibold mb-2">{serviceRequest.service?.title}</h2>
+          <h2 
+            onClick={() => serviceRequest.service?.id && navigate(`/services/${serviceRequest.service.id}`)}
+            className="font-semibold mb-2 hover:underline cursor-pointer"
+          >
+            {serviceRequest.service?.title}
+          </h2>
           <div className="flex items-center gap-4 text-sm text-gray-600">
             <span>Status: <strong className="text-gray-900">{serviceRequest.status}</strong></span>
             {serviceRequest.service?.estimated_hours && (
-              <span>Estimated: <strong className="text-gray-900">{serviceRequest.service.estimated_hours}h</strong></span>
-            )}
-            {serviceRequest.actual_hours && (
-              <span>Actual: <strong className="text-gray-900">{serviceRequest.actual_hours}h</strong></span>
+              <span>Hours: <strong className="text-gray-900">{serviceRequest.service.estimated_hours}h</strong></span>
             )}
           </div>
         </div>
@@ -289,7 +280,12 @@ export default function Chat() {
       {/* Admin Message Info */}
       {isAdminMessage && conversation.title && (
         <div className="rounded-3xl border border-gray-200 bg-white/80 backdrop-blur p-4 shadow-sm mb-4">
-          <h2 className="font-semibold mb-2">{conversation.title}</h2>
+          <h2 
+            onClick={() => conversation.related_service && navigate(`/services/${conversation.related_service}`)}
+            className={`font-semibold mb-2 ${conversation.related_service ? 'hover:underline cursor-pointer' : ''}`}
+          >
+            {conversation.title}
+          </h2>
           {adminParticipant && (
             <p className="text-sm text-gray-600">
               Admin: {adminParticipant.full_name || adminParticipant.username || adminParticipant.email}
@@ -332,65 +328,37 @@ export default function Chat() {
           </button>
         )}
 
-        {/* Update Hours (Both parties, when in progress or completed) */}
-        {canUpdateHours && (
+        {/* Complete Service (Both parties, when in progress) */}
+        {canMarkCompleted && (
           <div className="space-y-2">
-            <div className="flex gap-2">
-              <TextInput
-                type="number"
-                value={actualHours}
-                onChange={(e) => setActualHours(e.target.value)}
-                placeholder="Actual hours worked"
-                className="flex-1"
-              />
-              <button
-                onClick={() => {
-                  const hours = parseFloat(actualHours)
-                  if (hours > 0) {
-                    updateHoursMutation.mutate({ actual_hours: hours })
-                  }
-                }}
-                disabled={updateHoursMutation.isPending || !actualHours || parseFloat(actualHours) <= 0}
-                className="px-4 py-2 rounded-xl bg-gray-800 text-white font-semibold hover:opacity-90 disabled:opacity-50"
-              >
-                {updateHoursMutation.isPending ? 'Updating...' : 'Update Hours'}
-              </button>
+            <button
+              onClick={() => {
+                if (confirm('Mark this service as completed? Time will be transferred when both parties confirm.')) {
+                  completeMutation.mutate()
+                }
+              }}
+              disabled={completeMutation.isPending}
+              className="w-full px-4 py-2 rounded-xl bg-green-600 text-white font-semibold hover:opacity-90 disabled:opacity-50"
+            >
+              {completeMutation.isPending ? 'Processing...' : 'Mark as Completed'}
+            </button>
+            <div className="text-sm text-gray-600">
+              {serviceRequest.owner_completed && (
+                <div className="text-green-600">✓ Service owner confirmed</div>
+              )}
+              {serviceRequest.requester_completed && (
+                <div className="text-green-600">✓ Requester confirmed</div>
+              )}
+              {!bothCompleted && (
+                <div className="text-gray-500">Waiting for both parties to confirm...</div>
+              )}
             </div>
-            {serviceRequest.actual_hours && (
-              <div className="text-sm text-gray-600">
-                Current actual hours: <strong>{serviceRequest.actual_hours}h</strong>
-                {serviceRequest.actual_hours_owner_approved && serviceRequest.actual_hours_requester_approved && (
-                  <span className="ml-2 text-green-600">✓ Approved by both parties</span>
-                )}
-              </div>
-            )}
           </div>
         )}
-
-        {/* Approve Hours (Both parties) */}
-        {canApproveHours && (
-          <button
-            onClick={() => approveHoursMutation.mutate()}
-            disabled={approveHoursMutation.isPending}
-            className="w-full px-4 py-2 rounded-xl bg-purple-600 text-white font-semibold hover:opacity-90 disabled:opacity-50"
-          >
-            {approveHoursMutation.isPending ? 'Processing...' : 'Approve Actual Hours'}
-          </button>
-        )}
-
-        {/* Complete Service (Both parties, when in progress) */}
-        {canComplete && (
-          <button
-            onClick={() => {
-              if (confirm('Are you sure you want to mark this service as completed? This will transfer time.')) {
-                completeMutation.mutate()
-              }
-            }}
-            disabled={completeMutation.isPending}
-            className="w-full px-4 py-2 rounded-xl bg-green-600 text-white font-semibold hover:opacity-90 disabled:opacity-50"
-          >
-            {completeMutation.isPending ? 'Processing...' : 'Mark as Completed'}
-          </button>
+        {bothCompleted && (
+          <div className="text-sm text-green-600 font-semibold">
+            ✓ Service completed! Time has been transferred.
+          </div>
         )}
 
         {/* Status Display */}
@@ -444,7 +412,6 @@ export default function Chat() {
                       ) : message.sender?.id ? (
                         <p
                           onClick={() => {
-                            // If this is an admin message conversation and sender is staff, navigate to admin profile
                             if (isAdminMessage && message.sender?.is_staff) {
                               navigate(`/users/${message.sender.id}`)
                             } else {
