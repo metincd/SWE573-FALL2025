@@ -29,14 +29,26 @@ export default function Card({
 }: CardProps) {
   const subtitleParts = subtitle?.split(' • ') || []
   const subtitleOwnerName = subtitleParts[0]?.trim()
-  const restOfSubtitle = subtitleParts.slice(1).join(' • ')
   const ownerName = propOwnerName || subtitleOwnerName
 
   return (
     <div className="rounded-2xl border border-gray-200 bg-white/80 backdrop-blur shadow-sm p-4 flex flex-col gap-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+          <h3 
+            className={`text-base font-semibold text-gray-900 ${onClick ? 'hover:underline cursor-pointer' : ''}`}
+            onClick={onClick}
+            role={onClick ? 'button' : undefined}
+            tabIndex={onClick ? 0 : undefined}
+            onKeyDown={onClick ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onClick()
+              }
+            } : undefined}
+          >
+            {title}
+          </h3>
           {(subtitle || ownerName) && (
             <p className="text-sm text-gray-600">
               {ownerName && ownerId && onOwnerClick ? (

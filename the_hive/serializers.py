@@ -283,6 +283,8 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
     conversation = serializers.PrimaryKeyRelatedField(read_only=True)
     owner_approved = serializers.BooleanField(read_only=True)
     requester_approved = serializers.BooleanField(read_only=True)
+    owner_completed = serializers.BooleanField(read_only=True)
+    requester_completed = serializers.BooleanField(read_only=True)
     actual_hours = serializers.DecimalField(max_digits=6, decimal_places=2, read_only=True, allow_null=True)
     actual_hours_owner_approved = serializers.BooleanField(read_only=True)
     actual_hours_requester_approved = serializers.BooleanField(read_only=True)
@@ -300,6 +302,8 @@ class ServiceRequestSerializer(serializers.ModelSerializer):
             "conversation",
             "owner_approved",
             "requester_approved",
+            "owner_completed",
+            "requester_completed",
             "actual_hours",
             "actual_hours_owner_approved",
             "actual_hours_requester_approved",

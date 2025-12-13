@@ -284,6 +284,12 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(conversation_id=int(conversation_id))
             except (ValueError, TypeError):
                 pass
+        service_id = self.request.query_params.get("service")
+        if service_id:
+            try:
+                qs = qs.filter(service_id=int(service_id))
+            except (ValueError, TypeError):
+                pass
         return qs.order_by("-created_at")
     
     def get_serializer_context(self):
@@ -304,6 +310,7 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         user = self.request.user
         service = serializer.validated_data.get('service')
+        request_message = serializer.validated_data.get('message', '')
         
         # Check if user already has a request for this service
         existing_request = ServiceRequest.objects.filter(
@@ -322,11 +329,51 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
                 'service': 'You cannot request your own service.'
             })
         
+        # Check time balance before creating request
+        from decimal import Decimal
+        estimated_hours = Decimal(str(service.estimated_hours or 0))
+        if estimated_hours <= 0:
+            raise ValidationError({
+                'service': 'Service must have estimated hours greater than 0.'
+            })
+        
+        # Determine who pays and who receives
+        if service.service_type == "need":
+            # For need: owner pays, requester receives
+            payer = service.owner
+            receiver = user
+        else:
+            # For offer: requester pays, owner receives
+            payer = user
+            receiver = service.owner
+        
+        # Get or create time accounts
+        payer_account, _ = TimeAccount.objects.get_or_create(user=payer)
+        receiver_account, _ = TimeAccount.objects.get_or_create(user=receiver)
+        
+        # Simulate transfer to check if any account would go negative
+        payer_new_balance = payer_account.balance - estimated_hours
+        receiver_new_balance = receiver_account.balance + estimated_hours
+        
+        # Check if payer has enough balance
+        if payer_account.balance < estimated_hours:
+            raise ValidationError({
+                'service': f'You do not have enough time credits for this service. Required: {estimated_hours}h, Available: {payer_account.balance}h'
+            })
+        
+        # Check if payer balance would go negative
+        if payer_new_balance < 0:
+            raise ValidationError({
+                'service': f'You do not have enough time credits for this service. Required: {estimated_hours}h, Available: {payer_account.balance}h'
+            })
+        
+        # Note: We don't check receiver balance going negative because receiver is receiving credits (balance increases)
+        
         # Create ServiceRequest
         service_request = serializer.save(requester=user)
         
         # Create private conversation between requester and owner
-        from .models import Conversation
+        from .models import Conversation, Message
         conversation = Conversation.objects.create(
             title=f"Chat: {service.title}",
             related_service=service,
@@ -334,6 +381,14 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         conversation.participants.add(user, service.owner)
         service_request.conversation = conversation
         service_request.save(update_fields=["conversation"])
+        
+        # Add request message as first message in conversation if provided
+        if request_message.strip():
+            Message.objects.create(
+                conversation=conversation,
+                sender=user,
+                body=request_message.strip(),
+            )
 
     @action(detail=True, methods=["post"])
     def set_status(self, request, pk=None):
@@ -361,6 +416,18 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
             sr.responded_at = timezone.now()
         
         sr.save(update_fields=["status", "responded_at", "updated_at"])
+        
+        # If a request is accepted, reject all other pending requests for the same service
+        if new_status == "accepted":
+            from .models import ServiceRequest
+            other_requests = ServiceRequest.objects.filter(
+                service=sr.service,
+                status='pending'
+            ).exclude(id=sr.id)
+            
+            if other_requests.exists():
+                other_requests.update(status='rejected')
+        
         return Response(ServiceRequestSerializer(sr).data)
     
     @action(detail=True, methods=["post"])
@@ -387,67 +454,25 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         # If both approved, set status to in_progress
         if sr.owner_approved and sr.requester_approved:
             sr.status = "in_progress"
+            sr.save()
+            
+            # Reject all other pending/accepted requests for the same service
+            from .models import ServiceRequest
+            other_requests = ServiceRequest.objects.filter(
+                service=sr.service,
+                status__in=['pending', 'accepted']
+            ).exclude(id=sr.id)
+            
+            # Update all other requests to rejected
+            updated_count = other_requests.update(status='rejected')
+            if updated_count > 0:
+                # Log for debugging
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"Rejected {updated_count} other requests for service {sr.service.id} when request {sr.id} went in_progress")
+        else:
+            sr.save()
         
-        sr.save()
-        return Response(ServiceRequestSerializer(sr).data)
-    
-    @action(detail=True, methods=["post"])
-    def update_hours(self, request, pk=None):
-        """Update actual hours worked - can be called by either party"""
-        sr = self.get_object()
-        user = request.user
-        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
-        
-        # Check if user is part of this request
-        if user.id != service_owner_id and user.id != sr.requester.id:
-            return Response({"detail": "You are not part of this service request."}, status=403)
-        
-        # Check if service is in progress or completed
-        if sr.status not in ["in_progress", "completed"]:
-            return Response({"detail": "Service must be in progress or completed to update hours."}, status=400)
-        
-        actual_hours = request.data.get("actual_hours")
-        if actual_hours is None:
-            return Response({"detail": "actual_hours is required."}, status=400)
-        
-        try:
-            from decimal import Decimal
-            actual_hours = Decimal(str(actual_hours))
-            if actual_hours < 0:
-                return Response({"detail": "Hours cannot be negative."}, status=400)
-        except (ValueError, TypeError):
-            return Response({"detail": "Invalid hours value."}, status=400)
-        
-        # Reset approvals when hours are updated
-        sr.actual_hours = actual_hours
-        sr.actual_hours_owner_approved = False
-        sr.actual_hours_requester_approved = False
-        
-        sr.save()
-        return Response(ServiceRequestSerializer(sr).data)
-    
-    @action(detail=True, methods=["post"])
-    def approve_hours(self, request, pk=None):
-        """Approve actual hours - both parties must approve"""
-        sr = self.get_object()
-        user = request.user
-        service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
-        
-        # Check if user is part of this request
-        if user.id != service_owner_id and user.id != sr.requester.id:
-            return Response({"detail": "You are not part of this service request."}, status=403)
-        
-        # Check if actual hours is set
-        if not sr.actual_hours:
-            return Response({"detail": "Actual hours must be set first."}, status=400)
-        
-        # Set approval based on user role
-        if user.id == service_owner_id:
-            sr.actual_hours_owner_approved = True
-        elif user.id == sr.requester.id:
-            sr.actual_hours_requester_approved = True
-        
-        sr.save()
         return Response(ServiceRequestSerializer(sr).data)
     
     @action(detail=True, methods=["post"])
@@ -465,44 +490,85 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         if sr.status != "in_progress":
             return Response({"detail": "Service must be in progress to complete."}, status=400)
         
-        # Use actual_hours if set and approved, otherwise use estimated_hours
+        # Use estimated_hours (actual_hours feature removed)
         from decimal import Decimal
-        if sr.actual_hours and sr.actual_hours_owner_approved and sr.actual_hours_requester_approved:
-            service_hours = sr.actual_hours
-        else:
-            service_hours = Decimal(str(sr.service.estimated_hours or 0))
+        service_hours = Decimal(str(sr.service.estimated_hours or 0))
         
         if service_hours <= 0:
             return Response({"detail": "Service hours must be greater than 0."}, status=400)
         
-        # Mark as completed (both parties need to call this)
-        # For simplicity, we'll mark it as completed when either party calls it
-        # In a more complex system, you might want separate completion flags
-        sr.status = "completed"
-        sr.save()
+        # Set completion flag based on user role
+        if user.id == service_owner_id:
+            sr.owner_completed = True
+        elif user.id == sr.requester.id:
+            sr.requester_completed = True
         
-
-        service = sr.service
-        active_requests = service.requests.exclude(status__in=['completed', 'rejected', 'cancelled']).exists()
-        if not active_requests:
-            service.status = "completed"
-            service.save(update_fields=['status'])
+        # Check if both parties have completed
+        both_completed = sr.owner_completed and sr.requester_completed
         
-        requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
-        owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
-        
-        if sr.service.service_type == "need":
-            payer_account = owner_account
-            receiver_account = requester_account
-            payer_name = "Service owner"
-            receiver_name = "Requester"
-        else:
-            payer_account = requester_account
-            receiver_account = owner_account
-            payer_name = "Requester"
-            receiver_name = "Service owner"
-        
-        if payer_account.balance >= service_hours:
+        if both_completed:
+            # Both parties approved - complete the service and transfer time
+            sr.status = "completed"
+            sr.save()
+            
+            service = sr.service
+            active_requests = service.requests.exclude(status__in=['completed', 'rejected', 'cancelled']).exists()
+            if not active_requests:
+                service.status = "completed"
+                service.save(update_fields=['status'])
+            
+            requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
+            owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
+            
+            if sr.service.service_type == "need":
+                payer_account = owner_account
+                receiver_account = requester_account
+                payer_name = "Service owner"
+                receiver_name = "Requester"
+                payer_user = sr.service.owner
+                receiver_user = sr.requester
+            else:
+                payer_account = requester_account
+                receiver_account = owner_account
+                payer_name = "Requester"
+                receiver_name = "Service owner"
+                payer_user = sr.requester
+                receiver_user = sr.service.owner
+            
+            # Simulate transfer to check if any account would go negative
+            payer_new_balance = payer_account.balance - service_hours
+            receiver_new_balance = receiver_account.balance + service_hours
+            
+            # Check payer balance
+            if payer_account.balance < service_hours:
+                # Determine if current user is the payer
+                if user.id == payer_user.id:
+                    return Response(
+                        {"detail": f"You do not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
+                        status=400
+                    )
+                else:
+                    return Response(
+                        {"detail": f"The {payer_name.lower()} does not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
+                        status=400
+                    )
+            
+            # Check if payer balance would go negative
+            if payer_new_balance < 0:
+                if user.id == payer_user.id:
+                    return Response(
+                        {"detail": f"You do not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
+                        status=400
+                    )
+                else:
+                    return Response(
+                        {"detail": f"The {payer_name.lower()} does not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
+                        status=400
+                    )
+            
+            # Note: We don't check receiver balance going negative because receiver is receiving credits (balance increases)
+            
+            # All checks passed - perform transfer
             payer_account.balance -= service_hours
             payer_account.total_spent += service_hours
             payer_account.save()
@@ -530,10 +596,13 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
                 processed_by=user,
             )
         else:
-            return Response(
-                {"detail": f"{payer_name} does not have enough balance. Required: {service_hours}h, Available: {payer_account.balance}h"},
-                status=400
-            )
+            # Only one party approved - save the flag but don't complete yet
+            sr.save()
+            return Response({
+                "detail": "Completion marked. Waiting for the other party to confirm.",
+                "owner_completed": sr.owner_completed,
+                "requester_completed": sr.requester_completed
+            })
         
         return Response(ServiceRequestSerializer(sr).data)
 

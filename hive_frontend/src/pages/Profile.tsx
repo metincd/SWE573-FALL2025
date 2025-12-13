@@ -489,7 +489,12 @@ export default function Profile() {
                             {request.requester?.full_name || request.requester?.email}
                           </p>
                         )}
-                        <p className="text-sm text-gray-600">{request.service?.title}</p>
+                        <p 
+                          onClick={() => request.service?.id && navigate(`/services/${request.service.id}`)}
+                          className="text-sm text-gray-600 hover:underline cursor-pointer"
+                        >
+                          {request.service?.title}
+                        </p>
                       </div>
                       <span
                         className={`px-2 py-1 text-xs rounded-full ${
@@ -551,31 +556,45 @@ export default function Profile() {
                         </button>
                       </div>
                     )}
-                    {request.status === 'accepted' && (
-                      <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={async () => {
-                            if (!confirm('Mark this service as completed? Time will be transferred automatically.')) {
-                              return
-                            }
-                            try {
-                              await api.post(`/service-requests/${request.id}/set_status/`, {
-                                status: 'completed',
-                              })
-                              alert('Service marked as completed! Time has been transferred.')
-                              // Refetch requests
-                              refetchRequests()
-                              // Invalidate and refetch time account to show updated balance
-                              await queryClient.invalidateQueries({ queryKey: ['time-account'] })
-                              await queryClient.refetchQueries({ queryKey: ['time-account'] })
-                            } catch (error: any) {
-                              alert(error.response?.data?.detail || 'Failed to complete service')
-                            }
-                          }}
-                          className="px-3 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                        >
-                          Mark as Completed
-                        </button>
+                    {(request.status === 'accepted' || request.status === 'in_progress') && (
+                      <div className="space-y-2 mt-2">
+                        {(!request.owner_completed || !request.requester_completed) && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm('Mark this service as completed? Time will be transferred when both parties confirm.')) {
+                                return
+                              }
+                              try {
+                                const response = await api.post(`/service-requests/${request.id}/complete/`)
+                                const data = response.data
+                                if (data.detail && data.detail.includes('Waiting for')) {
+                                  alert('Completion marked. Waiting for the other party to confirm.')
+                                } else {
+                                  alert('Service marked as completed! Time has been transferred.')
+                                  await queryClient.invalidateQueries({ queryKey: ['time-account'] })
+                                  await queryClient.refetchQueries({ queryKey: ['time-account'] })
+                                }
+                                refetchRequests()
+                              } catch (error: any) {
+                                alert(error.response?.data?.detail || 'Failed to complete service')
+                              }
+                            }}
+                            className="px-3 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            Mark as Completed
+                          </button>
+                        )}
+                        {(request.owner_completed || request.requester_completed) && (
+                          <div className="text-xs text-gray-600">
+                            {request.owner_completed && <div className="text-green-600">✓ You confirmed</div>}
+                            {request.requester_completed && <div className="text-green-600">✓ Requester confirmed</div>}
+                            {request.owner_completed && request.requester_completed ? (
+                              <div className="text-green-600 font-semibold">✓ Service completed! Time transferred.</div>
+                            ) : (
+                              <div className="text-gray-500">Waiting for the other party to confirm...</div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -598,7 +617,12 @@ export default function Profile() {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <p className="font-semibold">{request.service?.title}</p>
+                        <p 
+                          onClick={() => request.service?.id && navigate(`/services/${request.service.id}`)}
+                          className="font-semibold hover:underline cursor-pointer"
+                        >
+                          {request.service?.title}
+                        </p>
                         {request.service?.owner?.id ? (
                           <p
                             onClick={() => navigate(`/users/${request.service.owner.id}`)}
@@ -630,10 +654,53 @@ export default function Profile() {
                     {request.conversation && (
                       <button
                         onClick={() => navigate(`/chat/${request.conversation}`)}
-                        className="text-sm text-blue-600 hover:text-blue-800 underline"
+                        className="text-sm text-blue-600 hover:text-blue-800 underline mb-2"
                       >
                         Open Chat →
                       </button>
+                    )}
+                    {(request.status === 'accepted' || request.status === 'in_progress') && (
+                      <div className="space-y-2 mt-2">
+                        {(!request.owner_completed || !request.requester_completed) && (
+                          <button
+                            onClick={async () => {
+                              if (!confirm('Mark this service as completed? Time will be transferred when both parties confirm.')) {
+                                return
+                              }
+                              try {
+                                const response = await api.post(`/service-requests/${request.id}/complete/`)
+                                const data = response.data
+                                if (data.detail && data.detail.includes('Waiting for')) {
+                                  alert('Completion marked. Waiting for the other party to confirm.')
+                                } else {
+                                  alert('Service marked as completed! Time has been transferred.')
+                                  // Invalidate and refetch time account to show updated balance
+                                  await queryClient.invalidateQueries({ queryKey: ['time-account'] })
+                                  await queryClient.refetchQueries({ queryKey: ['time-account'] })
+                                }
+                                // Refetch requests
+                                refetchRequests()
+                              } catch (error: any) {
+                                alert(error.response?.data?.detail || 'Failed to complete service')
+                              }
+                            }}
+                            className="px-3 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                          >
+                            Mark as Completed
+                          </button>
+                        )}
+                        {(request.owner_completed || request.requester_completed) && (
+                          <div className="text-xs text-gray-600">
+                            {request.owner_completed && <div className="text-green-600">✓ Service owner confirmed</div>}
+                            {request.requester_completed && <div className="text-green-600">✓ You confirmed</div>}
+                            {request.owner_completed && request.requester_completed ? (
+                              <div className="text-green-600 font-semibold">✓ Service completed! Time transferred.</div>
+                            ) : (
+                              <div className="text-gray-500">Waiting for the other party to confirm...</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
