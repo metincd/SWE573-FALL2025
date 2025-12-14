@@ -35,10 +35,10 @@ services:
       - DB_PASSWORD=${POSTGRES_PASSWORD:-hive_password}
       - DB_HOST=db
       - DB_PORT=5432
-      # CORS settings - defaults to localhost for local development
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
-      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      # CORS settings - defaults include EC2 URL
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,ec2-52-59-134-106.eu-central-1.compute.amazonaws.com}
     depends_on:
       db:
         condition: service_healthy
