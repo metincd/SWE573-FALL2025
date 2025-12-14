@@ -15,6 +15,8 @@ interface TextInputProps {
   required?: boolean
   multiline?: boolean
   rows?: number
+  min?: string | number
+  step?: string | number
 }
 
 const TextInput = React.forwardRef<HTMLInputElement | HTMLTextAreaElement, TextInputProps>(({
@@ -32,6 +34,8 @@ const TextInput = React.forwardRef<HTMLInputElement | HTMLTextAreaElement, TextI
   required = false,
   multiline = false,
   rows = 3,
+  min,
+  step,
 }, ref) => {
   const inputClassName = "w-full rounded-2xl border border-gray-300 bg-white/90 backdrop-blur px-4 py-3 pr-12 outline-none ring-0 focus:border-gray-400 focus:outline-none"
   
@@ -64,6 +68,8 @@ const TextInput = React.forwardRef<HTMLInputElement | HTMLTextAreaElement, TextI
             placeholder={placeholder}
             autoComplete={autoComplete}
             required={required}
+            min={min}
+            step={step}
             className={inputClassName}
           />
         )}

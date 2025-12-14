@@ -200,6 +200,7 @@ class ServiceSerializer(serializers.ModelSerializer):
             "address",
             "status",
             "estimated_hours",
+            "capacity",
             "image",
             "image_url",
             "discussion_thread",

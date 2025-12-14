@@ -466,6 +466,11 @@ export default function Profile() {
           {/* Received Requests */}
           <div>
             <h3 className="font-semibold mb-3">Received ({receivedRequests.length})</h3>
+            {receivedRequests.some((req: any) => req.service?.capacity > 1) && (
+              <div className="mb-3 p-2 bg-blue-50 rounded-lg text-xs text-blue-800">
+                💡 Some services support multiple participants. You can accept multiple requests up to the service capacity.
+              </div>
+            )}
             {receivedRequests.length === 0 ? (
               <p className="text-sm text-gray-500">No requests received</p>
             ) : (
@@ -606,6 +611,11 @@ export default function Profile() {
           {/* Sent Requests */}
           <div>
             <h3 className="font-semibold mb-3">Sent ({sentRequests.length})</h3>
+            {sentRequests.some((req: any) => req.service?.capacity > 1) && (
+              <div className="mb-3 p-2 bg-blue-50 rounded-lg text-xs text-blue-800">
+                💡 Some services support multiple participants. Your request may be accepted even if others have already joined.
+              </div>
+            )}
             {sentRequests.length === 0 ? (
               <p className="text-sm text-gray-500">No requests sent</p>
             ) : (

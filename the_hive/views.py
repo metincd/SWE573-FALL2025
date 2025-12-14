@@ -417,16 +417,35 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         
         sr.save(update_fields=["status", "responded_at", "updated_at"])
         
-        # If a request is accepted, reject all other pending requests for the same service
+        # If a request is accepted, check capacity
         if new_status == "accepted":
             from .models import ServiceRequest
-            other_requests = ServiceRequest.objects.filter(
-                service=sr.service,
-                status='pending'
-            ).exclude(id=sr.id)
+            service = sr.service
+            # Count currently accepted requests (including this one)
+            accepted_count = ServiceRequest.objects.filter(
+                service=service,
+                status='accepted'
+            ).count()
             
-            if other_requests.exists():
-                other_requests.update(status='rejected')
+            # If capacity is 1, reject all other pending requests (old behavior)
+            if service.capacity == 1:
+                remaining_pending = ServiceRequest.objects.filter(
+                    service=service,
+                    status='pending'
+                ).exclude(id=sr.id)
+                
+                if remaining_pending.exists():
+                    remaining_pending.update(status='rejected')
+            
+            # If capacity is reached, reject remaining pending requests
+            if accepted_count >= service.capacity:
+                remaining_pending = ServiceRequest.objects.filter(
+                    service=service,
+                    status='pending'
+                ).exclude(id=sr.id)
+                
+                if remaining_pending.exists():
+                    remaining_pending.update(status='rejected')
         
         return Response(ServiceRequestSerializer(sr).data)
     
@@ -456,20 +475,59 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
             sr.status = "in_progress"
             sr.save()
             
-            # Reject all other pending/accepted requests for the same service
+            # When service starts (at least one request is in_progress), 
+            # check if we've reached capacity and reject remaining requests
             from .models import ServiceRequest
-            other_requests = ServiceRequest.objects.filter(
-                service=sr.service,
-                status__in=['pending', 'accepted']
-            ).exclude(id=sr.id)
+            service = sr.service
+            in_progress_count = ServiceRequest.objects.filter(
+                service=service,
+                status='in_progress'
+            ).count()
+            accepted_count = ServiceRequest.objects.filter(
+                service=service,
+                status='accepted'
+            ).count()
             
-            # Update all other requests to rejected
-            updated_count = other_requests.update(status='rejected')
-            if updated_count > 0:
-                # Log for debugging
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.info(f"Rejected {updated_count} other requests for service {sr.service.id} when request {sr.id} went in_progress")
+            # Total active (in_progress + accepted) requests
+            total_active = in_progress_count + accepted_count
+            
+            # When service starts (at least one request is in_progress),
+            # check if we should reject remaining requests
+            # Rule: If service started and (in_progress + accepted) >= capacity, reject remaining
+            # OR if in_progress alone >= capacity, reject remaining
+            # Also: If service started and all accepted requests are now in_progress,
+            # and there are still pending requests, reject them
+            # This handles: owner accepted 2, both started, capacity=3, reject the 3rd pending
+            if in_progress_count > 0:
+                # Check if capacity is reached with current active requests
+                capacity_reached = (
+                    total_active >= service.capacity or 
+                    in_progress_count >= service.capacity
+                )
+                
+                # If service started and all accepted requests are now in_progress,
+                # and there are still pending requests, reject them
+                # This means: owner accepted some people, they all started, reject remaining pending
+                all_accepted_started = (accepted_count == 0 and in_progress_count > 0)
+                
+                if capacity_reached:
+                    remaining_requests = ServiceRequest.objects.filter(
+                        service=service,
+                        status__in=['pending', 'accepted']
+                    ).exclude(id=sr.id)
+                    
+                    if remaining_requests.exists():
+                        remaining_requests.update(status='rejected')
+                elif all_accepted_started:
+                    # Service started, all accepted requests are now in_progress,
+                    # reject remaining pending requests
+                    remaining_pending = ServiceRequest.objects.filter(
+                        service=service,
+                        status='pending'
+                    ).exclude(id=sr.id)
+                    
+                    if remaining_pending.exists():
+                        remaining_pending.update(status='rejected')
         else:
             sr.save()
         
@@ -477,7 +535,18 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
-        """Mark service as completed - both parties must approve"""
+        """
+        Mark service as completed - both parties must approve
+        
+        IMPORTANT: Time transfer only happens when BOTH parties (owner and requester) 
+        have marked this specific request as completed. Each request is handled independently.
+        
+        For multi-participant services:
+        - Each request requires both owner and requester to approve completion
+        - Time transfer happens per request, only when that request's both parties approve
+        - Owner receives/pays time only once (first completed request)
+        - Each participant pays/receives their time when their request is completed
+        """
         sr = self.get_object()
         user = request.user
         service_owner_id = sr.service.owner_id if hasattr(sr.service, 'owner_id') else sr.service.owner.id
@@ -503,105 +572,156 @@ class ServiceRequestViewSet(viewsets.ModelViewSet):
         elif user.id == sr.requester.id:
             sr.requester_completed = True
         
-        # Check if both parties have completed
-        both_completed = sr.owner_completed and sr.requester_completed
+        # Save the flag
+        sr.save()
         
-        if both_completed:
-            # Both parties approved - complete the service and transfer time
-            sr.status = "completed"
-            sr.save()
+        # CRITICAL: For multi-participant services, check if ALL in_progress requests are completed
+        # Time transfer ONLY happens when ALL participants (owner + all requesters) have approved
+        service = sr.service
+        in_progress_requests = service.requests.filter(status='in_progress')
+        
+        # Check if this specific request is completed
+        this_request_completed = sr.owner_completed and sr.requester_completed
+        
+        # Check if ALL in_progress requests are completed (owner + all requesters approved)
+        all_requests_completed = True
+        
+        for req in in_progress_requests:
+            # Each request must have both owner and requester completed
+            if not (req.owner_completed and req.requester_completed):
+                all_requests_completed = False
+        
+        # Only transfer time when ALL in_progress requests are completed
+        if all_requests_completed and this_request_completed:
+            # All parties approved - complete all in_progress requests and transfer time
+            # Mark all in_progress requests as completed
+            for req in in_progress_requests:
+                req.status = "completed"
+                req.save()
             
-            service = sr.service
+            # Perform time transfer for ALL completed requests
+            # Process each in_progress request (now completed) for time transfer
+            owner_account, _ = TimeAccount.objects.get_or_create(user=service.owner)
+            
+            # First, validate all balances before making any transfers
+            for req in in_progress_requests:
+                requester_account, _ = TimeAccount.objects.get_or_create(user=req.requester)
+                
+                if service.service_type == "offer":
+                    # Requester pays
+                    if requester_account.balance < service_hours:
+                        if user.id == req.requester.id:
+                            return Response(
+                                {"detail": f"You do not have enough time credits. Required: {service_hours}h, Available: {requester_account.balance}h"},
+                                status=400
+                            )
+                        else:
+                            return Response(
+                                {"detail": f"Requester {req.requester.email} does not have enough time credits. Required: {service_hours}h, Available: {requester_account.balance}h"},
+                                status=400
+                            )
+                else:
+                    # Owner pays (only once, checked below)
+                    pass
+            
+            # All validations passed, now perform transfers
+            owner_transfer_done = False
+            
+            for req in in_progress_requests:
+                requester_account, _ = TimeAccount.objects.get_or_create(user=req.requester)
+                
+                if service.service_type == "offer":
+                    # For offers: Each requester pays, Owner receives (only once)
+                    
+                    # Debit from requester (each participant pays)
+                    requester_account.balance -= service_hours
+                    requester_account.total_spent += service_hours
+                    requester_account.save()
+                    
+                    TimeTransaction.objects.create(
+                        account=requester_account,
+                        transaction_type="debit",
+                        amount=service_hours,
+                        status="completed",
+                        description=f"Payment for service: {service.title}",
+                        related_service=service,
+                        processed_by=user,
+                    )
+                    
+                    # Owner only receives time once (first request)
+                    if not owner_transfer_done:
+                        owner_account.balance += service_hours
+                        owner_account.total_earned += service_hours
+                        owner_account.save()
+                        
+                        TimeTransaction.objects.create(
+                            account=owner_account,
+                            transaction_type="credit",
+                            amount=service_hours,
+                            status="completed",
+                            description=f"Earned from service: {service.title}",
+                            related_service=service,
+                            processed_by=user,
+                        )
+                        owner_transfer_done = True
+                else:
+                    # For needs: Owner pays (only once), Each requester receives
+                    
+                    # Owner only pays once (first request)
+                    if not owner_transfer_done:
+                        owner_account.balance -= service_hours
+                        owner_account.total_spent += service_hours
+                        owner_account.save()
+                        
+                        TimeTransaction.objects.create(
+                            account=owner_account,
+                            transaction_type="debit",
+                            amount=service_hours,
+                            status="completed",
+                            description=f"Payment for service: {service.title}",
+                            related_service=service,
+                            processed_by=user,
+                        )
+                        owner_transfer_done = True
+                    
+                    # Requester receives their time (each participant gets their time)
+                    requester_account.balance += service_hours
+                    requester_account.total_earned += service_hours
+                    requester_account.save()
+                    
+                    TimeTransaction.objects.create(
+                        account=requester_account,
+                        transaction_type="credit",
+                        amount=service_hours,
+                        status="completed",
+                        description=f"Earned from service: {service.title}",
+                        related_service=service,
+                        processed_by=user,
+                    )
+            
+            # All transfers completed, check if service should be marked as completed
             active_requests = service.requests.exclude(status__in=['completed', 'rejected', 'cancelled']).exists()
             if not active_requests:
                 service.status = "completed"
                 service.save(update_fields=['status'])
-            
-            requester_account, _ = TimeAccount.objects.get_or_create(user=sr.requester)
-            owner_account, _ = TimeAccount.objects.get_or_create(user=sr.service.owner)
-            
-            if sr.service.service_type == "need":
-                payer_account = owner_account
-                receiver_account = requester_account
-                payer_name = "Service owner"
-                receiver_name = "Requester"
-                payer_user = sr.service.owner
-                receiver_user = sr.requester
-            else:
-                payer_account = requester_account
-                receiver_account = owner_account
-                payer_name = "Requester"
-                receiver_name = "Service owner"
-                payer_user = sr.requester
-                receiver_user = sr.service.owner
-            
-            # Simulate transfer to check if any account would go negative
-            payer_new_balance = payer_account.balance - service_hours
-            receiver_new_balance = receiver_account.balance + service_hours
-            
-            # Check payer balance
-            if payer_account.balance < service_hours:
-                # Determine if current user is the payer
-                if user.id == payer_user.id:
-                    return Response(
-                        {"detail": f"You do not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
-                        status=400
-                    )
-                else:
-                    return Response(
-                        {"detail": f"The {payer_name.lower()} does not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
-                        status=400
-                    )
-            
-            # Check if payer balance would go negative
-            if payer_new_balance < 0:
-                if user.id == payer_user.id:
-                    return Response(
-                        {"detail": f"You do not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
-                        status=400
-                    )
-                else:
-                    return Response(
-                        {"detail": f"The {payer_name.lower()} does not have enough time credits. Required: {service_hours}h, Available: {payer_account.balance}h"},
-                        status=400
-                    )
-            
-            # Note: We don't check receiver balance going negative because receiver is receiving credits (balance increases)
-            
-            # All checks passed - perform transfer
-            payer_account.balance -= service_hours
-            payer_account.total_spent += service_hours
-            payer_account.save()
-            
-            receiver_account.balance += service_hours
-            receiver_account.total_earned += service_hours
-            receiver_account.save()
-            
-            TimeTransaction.objects.create(
-                account=payer_account,
-                transaction_type="debit",
-                amount=service_hours,
-                status="completed",
-                description=f"Payment for service: {sr.service.title}",
-                related_service=sr.service,
-                processed_by=user,
-            )
-            TimeTransaction.objects.create(
-                account=receiver_account,
-                transaction_type="credit",
-                amount=service_hours,
-                status="completed",
-                description=f"Earned from service: {sr.service.title}",
-                related_service=sr.service,
-                processed_by=user,
-            )
         else:
-            # Only one party approved - save the flag but don't complete yet
-            sr.save()
+            # Not all parties have approved yet - save the flag but don't transfer time
+            # Return status showing which parties have approved
+            pending_requests = []
+            for req in in_progress_requests:
+                if not (req.owner_completed and req.requester_completed):
+                    pending_requests.append({
+                        "request_id": req.id,
+                        "requester": req.requester.email,
+                        "owner_completed": req.owner_completed,
+                        "requester_completed": req.requester_completed
+                    })
+            
             return Response({
-                "detail": "Completion marked. Waiting for the other party to confirm.",
-                "owner_completed": sr.owner_completed,
-                "requester_completed": sr.requester_completed
+                "detail": "Completion marked. Waiting for all parties to confirm.",
+                "pending_requests": pending_requests,
+                "total_in_progress": in_progress_requests.count(),
+                "completed_requests": sum(1 for req in in_progress_requests if req.owner_completed and req.requester_completed)
             })
         
         return Response(ServiceRequestSerializer(sr).data)

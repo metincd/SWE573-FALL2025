@@ -43,6 +43,7 @@ export default function CreateService() {
     title: '',
     description: '',
     estimated_hours: 1,
+    capacity: 1,
     address: '',
     latitude: '',
     longitude: '',
@@ -217,7 +218,7 @@ export default function CreateService() {
     const { name, value } = e.target
     setFormData((prev) => ({
       ...prev,
-      [name]: name === 'estimated_hours' ? parseFloat(value) || 0 : value,
+      [name]: (name === 'estimated_hours' || name === 'capacity') ? parseFloat(value) || (name === 'capacity' ? 1 : 0) : value,
     }))
 
     if (name === 'address' && value.length > 2) {
@@ -380,6 +381,7 @@ export default function CreateService() {
       title: formData.title,
       description: formData.description,
       estimated_hours: formData.estimated_hours,
+      capacity: formData.capacity || 1,
     }
 
     if (formData.tags.length > 0) {
@@ -595,7 +597,30 @@ export default function CreateService() {
             onChange={handleChange}
             placeholder="1"
             required
+            min="0.5"
+            step="0.5"
           />
+
+          {/* Capacity (for multi-participant services) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Participant Capacity
+            </label>
+            <input
+              type="number"
+              name="capacity"
+              value={formData.capacity.toString()}
+              onChange={handleChange}
+              placeholder="1"
+              min="1"
+              step="1"
+              required
+              className="w-full rounded-2xl border border-gray-300 bg-white/90 backdrop-blur px-4 py-3 outline-none ring-0 focus:border-gray-400 focus:outline-none"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Maximum number of participants (e.g., for group classes: 3 means up to 3 people can join)
+            </p>
+          </div>
 
           {/* Location (Optional) */}
           <div>
