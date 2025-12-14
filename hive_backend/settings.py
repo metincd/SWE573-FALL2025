@@ -155,11 +155,22 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 20,
 }
 
-# CORS settings - allow from environment or default to localhost
-CORS_ALLOWED_ORIGINS = os.getenv(
-    "CORS_ALLOWED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175"
-).split(",")
+# CORS settings - allow from environment or default to localhost + EC2
+cors_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+if cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
+else:
+    # Default: localhost for development + EC2 for production
+    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+        f"http://{ec2_domain}:3000",  # EC2 frontend URL
+    ]
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
@@ -175,7 +186,18 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
-CSRF_TRUSTED_ORIGINS = os.getenv(
-    "CSRF_TRUSTED_ORIGINS",
-    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5175,http://127.0.0.1:5175"
-).split(",")
+csrf_origins_env = os.getenv("CSRF_TRUSTED_ORIGINS", "").strip()
+if csrf_origins_env:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_env.split(",") if origin.strip()]
+else:
+    # Default: localhost for development + EC2 for production
+    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
+    CSRF_TRUSTED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+        f"http://{ec2_domain}:3000",  # EC2 frontend URL
+    ]
