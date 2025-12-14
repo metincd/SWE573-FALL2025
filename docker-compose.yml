@@ -28,12 +28,17 @@ services:
       - "8000:8000"
     environment:
       - DEBUG=${DEBUG:-True}
+      - DJANGO_ENV=${DJANGO_ENV:-development}
       - SECRET_KEY=${SECRET_KEY:-django-insecure--e1i-zdgljw6&0b5mugkc(o%@t*7=9v!6bro$-=h4ip!$(od9b}
       - DB_NAME=${POSTGRES_DB:-hive_db}
       - DB_USER=${POSTGRES_USER:-hive_user}
       - DB_PASSWORD=${POSTGRES_PASSWORD:-hive_password}
       - DB_HOST=db
       - DB_PORT=5432
+      # CORS settings - defaults to localhost for local development
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
     depends_on:
       db:
         condition: service_healthy

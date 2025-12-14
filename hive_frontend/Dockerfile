@@ -14,8 +14,9 @@ RUN npm install
 COPY . .
 
 # Build the application with environment variables
-ARG VITE_API_BASE_URL=http://localhost:8000/api
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+# Use build arg, fallback to env var, or default to localhost
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000/api}
 RUN npm run build
 
 # Production stage
