@@ -161,7 +161,6 @@ if cors_origins_env:
     CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(",") if origin.strip()]
 else:
     # Default: localhost for development + EC2 for production
-    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
     CORS_ALLOWED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -169,7 +168,7 @@ else:
         "http://127.0.0.1:5173",
         "http://localhost:5175",
         "http://127.0.0.1:5175",
-        f"http://{ec2_domain}:3000",  # EC2 frontend URL
+        "http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000",  # EC2 frontend URL
     ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -191,7 +190,6 @@ if csrf_origins_env:
     CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_env.split(",") if origin.strip()]
 else:
     # Default: localhost for development + EC2 for production
-    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
     CSRF_TRUSTED_ORIGINS = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -199,5 +197,5 @@ else:
         "http://127.0.0.1:5173",
         "http://localhost:5175",
         "http://127.0.0.1:5175",
-        f"http://{ec2_domain}:3000",  # EC2 frontend URL
+        "http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000",  # EC2 frontend URL
     ]

@@ -47,16 +47,14 @@ if cors_origins_env:
 else:
     # Default: EC2 frontend URL (port 3000)
     # This will be used if CORS_ALLOWED_ORIGINS is not set in environment
-    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
-    CORS_ALLOWED_ORIGINS = [f'http://{ec2_domain}:3000']
+    CORS_ALLOWED_ORIGINS = ['http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000']
 
 csrf_origins_env = os.getenv('CSRF_TRUSTED_ORIGINS', '').strip()
 if csrf_origins_env:
     CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_env.split(',') if origin.strip()]
 else:
     # Default: EC2 frontend URL (port 3000)
-    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
-    CSRF_TRUSTED_ORIGINS = [f'http://{ec2_domain}:3000']
+    CSRF_TRUSTED_ORIGINS = ['http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000']
 
 # CORS additional settings for preflight requests
 CORS_ALLOW_CREDENTIALS = True
