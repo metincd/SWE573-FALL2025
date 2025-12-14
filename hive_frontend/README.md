@@ -21,7 +21,7 @@ Uygulama `http://localhost:5173` adresinde çalışacak.
 `.env` dosyasında `VITE_API_BASE_URL` değişkenini backend API adresine göre ayarlayın:
 
 ```
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
+VITE_API_BASE_URL=http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:8000/api
 ```
 
 ## Build
