@@ -11,6 +11,10 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hive_backend.settings')
+# Use production settings if DJANGO_ENV is set to production
+if os.getenv('DJANGO_ENV') == 'production':
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hive_backend.settings_prod')
+else:
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hive_backend.settings')
 
 application = get_wsgi_application()
