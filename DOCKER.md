@@ -22,8 +22,8 @@ This project is containerized using Docker and Docker Compose.
 
 3. **Access the application:**
    - Frontend: http://localhost:3000
-   - Backend API: http://localhost:8000
-   - Admin Panel: http://localhost:8000/admin
+   - Backend API: http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:8000
+   - Admin Panel: http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:8000/admin
 
 ## Services
 

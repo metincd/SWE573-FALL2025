@@ -1,16 +1,31 @@
 # Production docker-compose override
 # Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up
 # Note: For production, you need to install gunicorn: pip install gunicorn
+# 
+# EC2 Deployment:
+# Set environment variables before running:
+# export EC2_DOMAIN="ec2-52-59-134-106.eu-central-1.compute.amazonaws.com"
+# export SECRET_KEY="your-secret-key"
+# export ALLOWED_HOSTS="ec2-52-59-134-106.eu-central-1.compute.amazonaws.com,localhost"
+# export CORS_ALLOWED_ORIGINS="http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000"
+# export VITE_API_BASE_URL="http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:8000/api"
+# docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 services:
   backend:
     environment:
       - DEBUG=False
+      - DJANGO_ENV=production
       - SECRET_KEY=${SECRET_KEY}
+      # CORS settings for production - override from environment or use defaults
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-ec2-52-59-134-106.eu-central-1.compute.amazonaws.com,localhost,127.0.0.1}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:3000}
     command: sh -c "python manage.py collectstatic --noinput && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
 
   frontend:
     build:
       args:
-        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000/api}
+        # Frontend API URL - override from environment or use EC2 default
+        - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:8000/api}
 

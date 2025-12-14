@@ -16,7 +16,7 @@ COPY . .
 # Build the application with environment variables
 # Use build arg, fallback to env var, or default to localhost
 ARG VITE_API_BASE_URL
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000/api}
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://ec2-52-59-134-106.eu-central-1.compute.amazonaws.com:8000/api}
 RUN npm run build
 
 # Production stage
