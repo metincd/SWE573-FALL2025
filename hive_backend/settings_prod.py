@@ -40,12 +40,23 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # CORS settings for production
-# Must be set via environment variable in production
-CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',')
-CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS if origin.strip()]
+# Get from environment variable, or use default EC2 frontend URL
+cors_origins_env = os.getenv('CORS_ALLOWED_ORIGINS', '').strip()
+if cors_origins_env:
+    CORS_ALLOWED_ORIGINS = [origin.strip() for origin in cors_origins_env.split(',') if origin.strip()]
+else:
+    # Default: EC2 frontend URL (port 3000)
+    # This will be used if CORS_ALLOWED_ORIGINS is not set in environment
+    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
+    CORS_ALLOWED_ORIGINS = [f'http://{ec2_domain}:3000']
 
-CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',')
-CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS if origin.strip()]
+csrf_origins_env = os.getenv('CSRF_TRUSTED_ORIGINS', '').strip()
+if csrf_origins_env:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in csrf_origins_env.split(',') if origin.strip()]
+else:
+    # Default: EC2 frontend URL (port 3000)
+    ec2_domain = os.getenv('EC2_DOMAIN', 'ec2-52-59-134-106.eu-central-1.compute.amazonaws.com')
+    CSRF_TRUSTED_ORIGINS = [f'http://{ec2_domain}:3000']
 
 CORS_ALLOW_CREDENTIALS = True
 
