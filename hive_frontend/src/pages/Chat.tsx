@@ -273,7 +273,15 @@ export default function Chat() {
             {serviceRequest.service?.estimated_hours && (
               <span>Hours: <strong className="text-gray-900">{serviceRequest.service.estimated_hours}h</strong></span>
             )}
+            {serviceRequest.service?.capacity && serviceRequest.service.capacity > 1 && (
+              <span>Capacity: <strong className="text-gray-900">{serviceRequest.service.capacity} participants</strong></span>
+            )}
           </div>
+          {serviceRequest.service?.capacity && serviceRequest.service.capacity > 1 && (
+            <p className="text-xs text-gray-500 mt-2">
+              💡 This service supports multiple participants. Each participant will be charged {serviceRequest.service.estimated_hours}h when completed.
+            </p>
+          )}
         </div>
       )}
 

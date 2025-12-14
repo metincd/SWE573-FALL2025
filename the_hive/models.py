@@ -219,6 +219,11 @@ class Service(models.Model):
         blank=True,
         help_text=_("Estimated time to complete this service"),
     )
+    capacity = models.PositiveIntegerField(
+        _("capacity"),
+        default=1,
+        help_text=_("Maximum number of participants for this service (e.g., for group classes)"),
+    )
     image = models.ImageField(
         _("service image"),
         upload_to="service_images/",

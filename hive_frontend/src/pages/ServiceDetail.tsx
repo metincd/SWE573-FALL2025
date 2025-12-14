@@ -441,9 +441,28 @@ export default function ServiceDetail() {
             <p className="text-sm text-gray-500 mb-1">Estimated Hours</p>
             <p className="font-semibold">⏱️ {service.estimated_hours} hours</p>
           </div>
+          <div>
+            <p className="text-sm text-gray-500 mb-1">Participant Capacity</p>
+            <p className="font-semibold">👥 {service.capacity || 1} {service.capacity === 1 ? 'person' : 'people'}</p>
+            {service.capacity > 1 && (
+              <p className="text-xs text-gray-400 mt-1">
+                Multiple participants can join this service
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Request Service Button */}
+        {service.capacity > 1 && !existingRequest && (
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+            <p className="font-semibold mb-1">👥 Multi-Participant Service</p>
+            <p>
+              This service supports up to <strong>{service.capacity} participants</strong>. 
+              You can request to join even if others have already requested. 
+              Each participant will be charged <strong>{service.estimated_hours}h</strong> when the service is completed.
+            </p>
+          </div>
+        )}
         {existingRequest && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
             You already have a <strong>{existingRequest.status}</strong> request for this service.

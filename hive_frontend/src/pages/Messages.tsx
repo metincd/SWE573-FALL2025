@@ -126,6 +126,11 @@ export default function Messages() {
           <p className="text-sm text-gray-600 mb-6">
             All your private chats. You can open a conversation or manage requests directly from here.
           </p>
+          {serviceRequests.some((req: any) => req.service?.capacity > 1) && (
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+              💡 Some services support multiple participants. You can accept multiple requests up to the service capacity. Each participant will be charged separately when the service is completed.
+            </div>
+          )}
 
           {conversations.length === 0 ? (
             <p className="text-sm text-gray-500">You don't have any conversations yet.</p>
